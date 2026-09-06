@@ -9,6 +9,7 @@ camerax = "1.6.1"
 media3 = "1.11.0"
 junit = "4.13.2"
 json = "20250517"
+sherpaOnnx = "1.13.7"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -33,6 +34,8 @@ androidx-camera-compose = { group = "androidx.camera", name = "camera-compose", 
 androidx-media3-common = { group = "androidx.media3", name = "media3-common", version.ref = "media3" }
 androidx-media3-transformer = { group = "androidx.media3", name = "media3-transformer", version.ref = "media3" }
 androidx-media3-effect = { group = "androidx.media3", name = "media3-effect", version.ref = "media3" }
+
+sherpa-onnx = { group = "com.k2fsa.sherpa.onnx", name = "sherpa-onnx", version.ref = "sherpaOnnx" }
 
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 json = { group = "org.json", name = "json", version.ref = "json" }

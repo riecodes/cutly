@@ -26,6 +26,11 @@ android {
         versionCode = 1
         versionName = "0.1.0"
 
+        // sherpa-onnx ships native libraries for four ABIs and most of the AAR's 46 MB is the
+        // three nobody runs on. Every Android phone since 2019 is arm64, and the emulator images
+        // used here are x86_64, so those two are kept and the rest dropped.
+        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+
         buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
     }
 
@@ -100,6 +105,11 @@ dependencies {
     implementation(libs.androidx.media3.common)
     implementation(libs.androidx.media3.transformer)
     implementation(libs.androidx.media3.effect)
+
+    // Offline speech recognition, for the languages the phone's own recogniser does not have.
+    // The "@aar" is required: the ivy repository serves a bare artifact with no POM, so Gradle
+    // has to be told the extension rather than being left to infer it from metadata.
+    implementation("${libs.sherpa.onnx.get()}@aar")
 
     testImplementation(libs.junit)
     // The android.jar used for unit tests stubs org.json out; the real implementation shadows it
