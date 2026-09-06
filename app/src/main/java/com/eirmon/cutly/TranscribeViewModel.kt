@@ -5,8 +5,9 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.eirmon.cutly.export.ClipExporter
-import com.eirmon.cutly.transcribe.GeminiTranscriber
+import com.eirmon.cutly.transcribe.OnDeviceTranscriber
 import com.eirmon.cutly.transcribe.Segment
+import com.eirmon.cutly.transcribe.TranscriptionLanguage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,32 +28,38 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
         /** Set on failure; shown as embedded text until the next attempt or [dismissError]. */
         val error: String? = null,
         /** Non-null while the transcript sheet is open. */
-        val transcript: String? = null
+        val transcript: String? = null,
+        /**
+         * Which model the on-device recogniser loads.
+         *
+         * It takes one language per run, so this is a choice the user has to make rather than
+         * something to detect: a Taglish take is transcribed by whichever half it is mostly in.
+         */
+        val language: TranscriptionLanguage = TranscriptionLanguage.DEFAULT
     )
 
     private val exporter = ClipExporter(application)
-    private val transcriber = GeminiTranscriber(BuildConfig.GEMINI_API_KEY)
+    private val onDevice = OnDeviceTranscriber(application)
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
+    fun setLanguage(language: TranscriptionLanguage) {
+        _state.update { if (it.isBusy) it else it.copy(language = language) }
+    }
+
     fun transcribe(video: Uri) {
         if (_state.value.isBusy) return
-        if (BuildConfig.GEMINI_API_KEY.isEmpty()) {
-            _state.update {
-                it.copy(error = "No Gemini API key set. Add gemini.api.key to local.properties.")
-            }
-            return
-        }
+        val language = _state.value.language
 
         _state.update { it.copy(isBusy = true, status = "Extracting audio…", error = null) }
         viewModelScope.launch {
-            // Transformer needs the main looper, so this stays on it; the upload moves itself off.
+            // Transformer needs the main looper, so this stays on it; the decode moves itself off.
             val result = runCatching {
                 val audio = exporter.extractAudio(video)
-                _state.update { it.copy(status = "Transcribing…") }
+                _state.update { it.copy(status = "Transcribing on device…") }
                 try {
-                    Segment.render(transcriber.transcribe(audio))
+                    Segment.render(onDevice.transcribe(audio, language))
                 } finally {
                     audio.delete()
                 }

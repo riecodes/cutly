@@ -49,6 +49,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.eirmon.cutly.CleanupViewModel
 import com.eirmon.cutly.TranscribeViewModel
+import com.eirmon.cutly.transcribe.TranscriptionLanguage
 import com.eirmon.cutly.ui.theme.Accent
 import com.eirmon.cutly.ui.theme.AccentTint
 import com.eirmon.cutly.ui.theme.Canvas
@@ -183,6 +184,18 @@ fun HomeScreen(
                 )
             }
 
+            Spacer(Modifier.height(10.dp))
+
+            // Directly under the card it belongs to, because the recogniser loads one model per
+            // run: this is a choice that has to be made before picking the video, not after.
+            Reveal(delayMillis = 220) {
+                LanguagePicker(
+                    selected = state.language,
+                    enabled = !busy,
+                    onSelect = viewModel::setLanguage
+                )
+            }
+
             Spacer(Modifier.height(14.dp))
 
             Reveal(delayMillis = 240) {
@@ -220,7 +233,7 @@ fun HomeScreen(
             Reveal(delayMillis = 300) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Chip("No account")
-                    Chip("Cutting is offline")
+                    Chip("Runs offline")
                 }
             }
 
@@ -228,8 +241,8 @@ fun HomeScreen(
 
             Reveal(delayMillis = 360) {
                 Text(
-                    text = "Transcription is the one thing that goes online — the audio, never " +
-                        "the video, and only when you ask for it.",
+                    text = "Transcription runs on the phone's own recogniser. Burning captions " +
+                        "into a cut is the one thing that goes online, and only when you ask.",
                     color = Faint,
                     fontFamily = TikTokSans,
                     fontSize = 12.sp,
@@ -405,6 +418,43 @@ private fun CutMark() {
                     .height(2.5.dp)
                     .clip(RoundedCornerShape(999.dp))
                     .background(Accent)
+            )
+        }
+    }
+}
+
+/**
+ * Which language the on-device recogniser listens for.
+ *
+ * Three chips rather than a dropdown: there are three options, and a menu that has to be opened
+ * to see three things is a menu that hides them.
+ */
+@Composable
+private fun LanguagePicker(
+    selected: TranscriptionLanguage,
+    enabled: Boolean,
+    onSelect: (TranscriptionLanguage) -> Unit
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        TranscriptionLanguage.entries.forEach { language ->
+            val active = language == selected
+            Text(
+                text = language.label,
+                color = if (active) Panel else if (enabled) Muted else Faint,
+                fontFamily = TikTokSans,
+                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                fontSize = 12.sp,
+                letterSpacing = (-0.1).sp,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(if (active) Ink else Color.Transparent)
+                    .border(1.dp, if (active) Ink else Hairline, RoundedCornerShape(999.dp))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        enabled = enabled
+                    ) { onSelect(language) }
+                    .padding(horizontal = 12.dp, vertical = 7.dp)
             )
         }
     }
