@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -35,6 +36,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -93,6 +95,7 @@ fun HomeScreen(
     ) { picked -> picked?.let(cleanupViewModel::analyze) }
 
     val busy = state.isBusy || cleanup.isBusy
+    var languageSheetOpen by rememberSaveable { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -139,8 +142,8 @@ fun HomeScreen(
 
             Reveal(delayMillis = 60) {
                 Text(
-                    text = "A segmented video camera, a transcriber that reads English " +
-                        "and Filipino back as text, and a cut that drops the dead air.",
+                    text = "A segmented video camera, a transcriber that runs on the phone's " +
+                        "own recogniser, and a cut that drops the dead air.",
                     color = Muted,
                     fontFamily = TikTokSans,
                     fontWeight = FontWeight.Normal,
@@ -170,8 +173,8 @@ fun HomeScreen(
                 ServiceCard(
                     label = "Video to text",
                     title = "Transcribe a video.",
-                    body = "Pick any video on the phone. English and Tagalog come back as " +
-                        "editable text, timestamped, switching languages the way you said them.",
+                    body = "Pick any video on the phone. The transcript comes back as " +
+                        "editable text, timestamped, in whichever language you choose below.",
                     enabled = !busy,
                     onClick = {
                         picker.launch(
@@ -189,10 +192,11 @@ fun HomeScreen(
             // Directly under the card it belongs to, because the recogniser loads one model per
             // run: this is a choice that has to be made before picking the video, not after.
             Reveal(delayMillis = 220) {
-                LanguagePicker(
+                LanguageField(
+                    languages = state.languages,
                     selected = state.language,
                     enabled = !busy,
-                    onSelect = viewModel::setLanguage
+                    onClick = { languageSheetOpen = true }
                 )
             }
 
@@ -258,6 +262,18 @@ fun HomeScreen(
         if (busy && cleanup.review == null) {
             BusyOverlay(status = state.status ?: cleanup.status)
         }
+    }
+
+    if (languageSheetOpen) {
+        LanguageSheet(
+            languages = state.languages,
+            selected = state.language,
+            onSelect = {
+                viewModel.setLanguage(it)
+                languageSheetOpen = false
+            },
+            onDismiss = { languageSheetOpen = false }
+        )
     }
 
     cleanup.review?.let { review ->
@@ -424,39 +440,68 @@ private fun CutMark() {
 }
 
 /**
- * Which language the on-device recogniser listens for.
+ * The chosen language, as one tappable field rather than a row of chips.
  *
- * Three chips rather than a dropdown: there are three options, and a menu that has to be opened
- * to see three things is a menu that hides them.
+ * The recogniser reports thirty-odd languages on some phones, which a horizontal strip of chips
+ * turns into blind swiping. One field that states the current choice and opens a searchable list
+ * is both smaller on the page and quicker to use.
  */
 @Composable
-private fun LanguagePicker(
-    selected: TranscriptionLanguage,
+private fun LanguageField(
+    languages: List<TranscriptionLanguage>,
+    selected: TranscriptionLanguage?,
     enabled: Boolean,
-    onSelect: (TranscriptionLanguage) -> Unit
+    onClick: () -> Unit
 ) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        TranscriptionLanguage.entries.forEach { language ->
-            val active = language == selected
+    if (languages.isEmpty()) {
+        Text(
+            text = "This phone has no on-device speech recogniser.",
+            color = Faint,
+            fontFamily = TikTokSans,
+            fontSize = 12.sp
+        )
+        return
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .border(1.dp, Hairline, RoundedCornerShape(12.dp))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                enabled = enabled,
+                onClick = onClick
+            )
+            // Comfortably past the 48dp minimum target, since this is the only control here.
+            .heightIn(min = 52.dp)
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = language.label,
-                color = if (active) Panel else if (enabled) Muted else Faint,
+                text = "Transcription language",
+                color = Faint,
                 fontFamily = TikTokSans,
-                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-                fontSize = 12.sp,
-                letterSpacing = (-0.1).sp,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(if (active) Ink else Color.Transparent)
-                    .border(1.dp, if (active) Ink else Hairline, RoundedCornerShape(999.dp))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        enabled = enabled
-                    ) { onSelect(language) }
-                    .padding(horizontal = 12.dp, vertical = 7.dp)
+                fontSize = 11.sp
+            )
+            Text(
+                text = selected?.label ?: "Choose one",
+                color = if (enabled) Ink else Muted,
+                fontFamily = TikTokSans,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp
             )
         }
+        Text(
+            text = "Change",
+            color = if (enabled) Accent else Faint,
+            fontFamily = TikTokSans,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 13.sp
+        )
     }
 }
 

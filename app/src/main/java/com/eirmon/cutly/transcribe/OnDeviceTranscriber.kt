@@ -6,8 +6,11 @@ import android.media.AudioFormat
 import android.os.Build
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
+import android.speech.ModelDownloadListener
 import android.speech.RecognitionListener
 import android.speech.RecognitionPart
+import android.speech.RecognitionSupport
+import android.speech.RecognitionSupportCallback
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
@@ -46,6 +49,35 @@ import kotlin.coroutines.resumeWithException
 class OnDeviceTranscriber(private val context: Context) {
 
     /**
+     * Every language this phone's recogniser will accept, the ones already downloaded first.
+     *
+     * Empty when the recogniser will not answer, which the caller should treat as "on-device
+     * transcription is unavailable here" rather than as "no languages exist".
+     */
+    suspend fun languages(): List<TranscriptionLanguage> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return emptyList()
+        if (!SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) return emptyList()
+
+        val support = support(PROBE_TAG) ?: return emptyList()
+        val installed = support.installedOnDeviceLanguages
+        Log.i(
+            TAG,
+            "installed=$installed supported=${support.supportedOnDeviceLanguages} " +
+                "pending=${support.pendingOnDeviceLanguages}"
+        )
+
+        val downloadable = (support.supportedOnDeviceLanguages + support.pendingOnDeviceLanguages)
+            .filterNot { candidate -> installed.any { it.equals(candidate, ignoreCase = true) } }
+            .distinct()
+
+        // Installed first: those work now, the rest cost a download before they do.
+        return installed.map { TranscriptionLanguage.of(it, installed = true) }
+            .sortedBy { it.label } +
+            downloadable.map { TranscriptionLanguage.of(it, installed = false) }
+                .sortedBy { it.label }
+    }
+
+    /**
      * @param audio an M4A from [com.eirmon.cutly.export.ClipExporter.extractAudio].
      * @return the transcript in order, empty when nothing intelligible was heard.
      * @throws IOException when the device cannot do this, or the recogniser gives up.
@@ -57,6 +89,8 @@ class OnDeviceTranscriber(private val context: Context) {
         if (!SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
             throw IOException("This phone has no on-device speech recogniser")
         }
+
+        ensureInstalled(language)
 
         val pcm = File(context.cacheDir, "cutly_speech_${System.currentTimeMillis()}.pcm")
         val spec = PcmDecoder.toMonoPcm(audio, pcm)
@@ -75,6 +109,107 @@ class OnDeviceTranscriber(private val context: Context) {
         return if (heard.words.isNotEmpty()) group(heard.words)
         else align(heard.lines, PcmDecoder.levels(audio))
     }
+
+    /**
+     * Checks the recogniser has this language before any audio is decoded, and asks for it if not.
+     *
+     * The on-device recogniser is Android System Intelligence, which keeps its own much shorter
+     * list of languages. Downloading a language for Gboard's offline voice typing does not add it
+     * here, which is why "I already downloaded Filipino" and "language unavailable" are both true
+     * at the same time. Asking the recogniser directly is the only way to know.
+     */
+    private suspend fun ensureInstalled(language: TranscriptionLanguage) {
+        val support = support(language.tag) ?: return  // No answer: let the attempt report it.
+
+        val installed = support.installedOnDeviceLanguages
+        val supported = support.supportedOnDeviceLanguages
+        val pending = support.pendingOnDeviceLanguages
+        Log.i(TAG, "installed=$installed supported=$supported pending=$pending")
+
+        if (installed.any { it.matches(language) }) return
+
+        if (pending.any { it.matches(language) }) {
+            throw IOException("${language.label} is still downloading. Try again in a minute.")
+        }
+
+        if (supported.any { it.matches(language) }) {
+            // Supported but absent, so it can be fetched. This is a request to the recogniser,
+            // not a download we control, hence "asked for" rather than a progress bar.
+            withContext(Dispatchers.Main) { requestDownload(language) }
+            throw IOException(
+                "${language.label} is not on this phone yet. Cutly has asked the system to " +
+                    "download it — try again in a minute."
+            )
+        }
+
+        throw IOException(
+            "${language.label} is not available for on-device recognition on this phone. " +
+                "It offers: ${installed.joinToString().ifBlank { "nothing" }}. Note that Gboard " +
+                "voice-typing languages are a separate set and do not count here."
+        )
+    }
+
+    /** Asks the recogniser what it can do, or null when it will not say. */
+    private suspend fun support(tag: String): RecognitionSupport? =
+        withContext(Dispatchers.Main) {
+            suspendCancellableCoroutine { continuation ->
+                val recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+                var done = false
+                fun settle(value: RecognitionSupport?) {
+                    if (done) return
+                    done = true
+                    recognizer.destroy()
+                    continuation.resume(value)
+                }
+                recognizer.checkRecognitionSupport(
+                    languageIntent(tag),
+                    context.mainExecutor,
+                    object : RecognitionSupportCallback {
+                        override fun onSupportResult(recognitionSupport: RecognitionSupport) =
+                            settle(recognitionSupport)
+
+                        override fun onError(error: Int) {
+                            Log.i(TAG, "checkRecognitionSupport error=$error")
+                            settle(null)
+                        }
+                    }
+                )
+                continuation.invokeOnCancellation { settle(null) }
+            }
+        }
+
+    private fun requestDownload(language: TranscriptionLanguage) {
+        val recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+        recognizer.triggerModelDownload(
+            languageIntent(language.tag),
+            context.mainExecutor,
+            object : ModelDownloadListener {
+                override fun onProgress(completedPercent: Int) = Unit
+                override fun onSuccess() {
+                    Log.i(TAG, "model download finished for ${language.tag}")
+                    recognizer.destroy()
+                }
+
+                override fun onScheduled() {
+                    Log.i(TAG, "model download scheduled for ${language.tag}")
+                }
+
+                override fun onError(error: Int) {
+                    Log.i(TAG, "model download failed for ${language.tag} error=$error")
+                    recognizer.destroy()
+                }
+            }
+        )
+    }
+
+    private fun languageIntent(tag: String): Intent =
+        Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(
+                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+            )
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, tag)
+        }
 
     /**
      * Places recognised lines on the timeline using the audio's own silences.
@@ -220,6 +355,19 @@ class OnDeviceTranscriber(private val context: Context) {
     private companion object {
 
         const val TAG = "Cutly"
+
+        /** The lists come back device-wide, so the probe's tag only has to be a valid one. */
+        const val PROBE_TAG = "en-US"
+
+        /**
+         * Recognisers report tags inconsistently: fil-PH, fil_PH, and bare fil all mean Filipino.
+         * Comparing on the language subtag alone avoids rejecting a model that is actually there.
+         */
+        fun String.matches(language: TranscriptionLanguage): Boolean {
+            val theirs = replace('_', '-').lowercase()
+            val ours = language.tag.lowercase()
+            return theirs == ours || theirs.substringBefore('-') == ours.substringBefore('-')
+        }
 
         /** The recogniser's best transcript for one segment, if it reported one. */
         fun Bundle.lines(): List<String> =

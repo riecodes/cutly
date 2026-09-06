@@ -1,24 +1,38 @@
 package com.eirmon.cutly.transcribe
 
+import java.util.Locale
+
 /**
- * What the on-device recogniser is told to listen for.
+ * A language the phone's own recogniser will actually accept.
  *
- * One language per run, because that is the shape of the API: `EXTRA_LANGUAGE` takes a single
- * BCP 47 tag and the recogniser loads one model. That is also the honest limitation to design
- * around — real Filipino speech switches to English inside a sentence, and no single-language
- * model transcribes both halves well. Picking the language of the majority of the take is the
- * best this engine can do; the Gemini path exists for when that is not good enough.
+ * Read off the device rather than written down here. A hardcoded list is a promise the app cannot
+ * keep: the on-device recogniser is Android System Intelligence, its language set differs by
+ * device and by build, and it is not the same set as Gboard's offline voice typing. A Galaxy A56
+ * on Android 16 reports `en-US` installed and thirty others available, with no Filipino among them
+ * at all, despite Filipino being downloaded for voice typing on the same phone.
+ *
+ * @param installed true when the model is on the phone now. False means the recogniser says it
+ *        could have it, so choosing it asks the system to fetch it first.
  */
-enum class TranscriptionLanguage(val tag: String, val label: String) {
-    /** Tagalog-based Filipino. English words mid-sentence come back approximated or wrong. */
-    FILIPINO("fil-PH", "Filipino"),
-
-    /** Philippine-accented English. Better on local accents and place names than en-US. */
-    ENGLISH_PH("en-PH", "English (PH)"),
-
-    ENGLISH_US("en-US", "English (US)");
-
+data class TranscriptionLanguage(
+    val tag: String,
+    val label: String,
+    val installed: Boolean
+) {
     companion object {
-        val DEFAULT = FILIPINO
+        /**
+         * Names a BCP 47 tag the way the user's own phone would.
+         *
+         * `Locale` already knows all of these, so there is no table here to fall out of date when
+         * the recogniser gains a language.
+         */
+        fun of(tag: String, installed: Boolean): TranscriptionLanguage {
+            val label = Locale.forLanguageTag(tag).getDisplayName(Locale.getDefault())
+            return TranscriptionLanguage(
+                tag = tag,
+                label = label.ifBlank { tag },
+                installed = installed
+            )
+        }
     }
 }

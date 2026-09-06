@@ -30,12 +30,18 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
         /** Non-null while the transcript sheet is open. */
         val transcript: String? = null,
         /**
-         * Which model the on-device recogniser loads.
+         * What this phone's recogniser will accept, read from the device on first composition.
          *
-         * It takes one language per run, so this is a choice the user has to make rather than
-         * something to detect: a Taglish take is transcribed by whichever half it is mostly in.
+         * Empty means on-device transcription is unavailable here, which is a real state worth
+         * showing rather than an error to hide: some phones have no recogniser at all.
          */
-        val language: TranscriptionLanguage = TranscriptionLanguage.DEFAULT
+        val languages: List<TranscriptionLanguage> = emptyList(),
+        /**
+         * Which model the recogniser loads. It takes one language per run, so this is a choice
+         * the user makes rather than something to detect: a Taglish take is transcribed by
+         * whichever half it is mostly in.
+         */
+        val language: TranscriptionLanguage? = null
     )
 
     private val exporter = ClipExporter(application)
@@ -44,6 +50,22 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
+    init {
+        // Asking the recogniser costs a service binding, so it happens once here rather than on
+        // every recomposition of the picker.
+        viewModelScope.launch {
+            val languages = runCatching { onDevice.languages() }.getOrDefault(emptyList())
+            _state.update {
+                it.copy(
+                    languages = languages,
+                    // Default to something that works now, not merely something that exists.
+                    language = languages.firstOrNull { language -> language.installed }
+                        ?: languages.firstOrNull()
+                )
+            }
+        }
+    }
+
     fun setLanguage(language: TranscriptionLanguage) {
         _state.update { if (it.isBusy) it else it.copy(language = language) }
     }
@@ -51,6 +73,12 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
     fun transcribe(video: Uri) {
         if (_state.value.isBusy) return
         val language = _state.value.language
+        if (language == null) {
+            _state.update {
+                it.copy(error = "This phone has no on-device speech recogniser.")
+            }
+            return
+        }
 
         _state.update { it.copy(isBusy = true, status = "Extracting audio…", error = null) }
         viewModelScope.launch {

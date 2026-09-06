@@ -25,7 +25,8 @@ Three services on Android, behind one hub screen:
 | Capture | CameraX (`camera-video`, `camera-compose`) |
 | Export / concat | Media3 Transformer + Presentation effect |
 | Delivery | MediaStore, `Movies/Cutly` |
-| Transcription | Gemini API (`gemini-3.7-flash`), audio only |
+| Transcription | On-device `SpeechRecognizer`, audio only |
+| Captions | Gemini API (`gemini-3.7-flash`), audio only |
 | Silence detection | `MediaExtractor` + `MediaCodec`, RMS per 20 ms window |
 | Captions | Media3 `CanvasOverlay` on the composition |
 | Build | AGP 9 (built-in Kotlin), Gradle 9.7 |
