@@ -1,0 +1,62 @@
+# Credentials and machine-specific paths.
+#
+# local.properties carries both sdk.dir and gemini.api.key. It must never be committed, and it is
+# listed first here so the reason is the first thing anyone editing this file reads.
+local.properties
+keystore.properties
+signing.properties
+*.jks
+*.keystore
+*.p12
+*.pem
+*.der
+.env
+.env.*
+!.env.example
+google-services.json
+
+# Gradle. gradle/wrapper/gradle-wrapper.jar is deliberately NOT ignored: the wrapper is how a
+# contributor builds with the right Gradle version without installing one.
+.gradle/
+build/
+
+# Android build outputs
+*.apk
+*.aab
+*.ap_
+*.aar
+*.dex
+*.class
+bin/
+gen/
+out/
+release/
+captures/
+.externalNativeBuild/
+.cxx/
+lint/intermediates/
+lint/generated/
+lint/outputs/
+lint/tmp/
+lint-results*.xml
+
+# IDE and tooling state
+.idea/
+*.iml
+*.iws
+*.ipr
+.kotlin/
+.navigation/
+.project
+.classpath
+.settings/
+local.log
+
+# Design references: screenshots of another app's UI, kept locally for layout notes. Not ours to
+# redistribute, so they stay out of a public repository.
+references/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

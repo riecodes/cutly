@@ -1,0 +1,23 @@
+# Normalise line endings in the repository to LF, whatever the contributor's OS does locally.
+#
+# This is not cosmetic. gradlew is a shell script with a #! line: committed with CRLF from a
+# Windows checkout, it fails on Linux and macOS with "bad interpreter". gradlew.bat has the
+# opposite requirement, so it is pinned to CRLF.
+* text=auto eol=lf
+
+gradlew text eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Never touch these. Line-ending conversion corrupts a binary.
+*.jar binary
+*.ttf binary
+*.otf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.mp4 binary
+*.m4a binary
+*.keystore binary
+*.jks binary
