@@ -248,10 +248,17 @@ fun HomeScreen(
     }
 
     cleanup.review?.let { review ->
+        // Rebuilt only when the kept spans or the captions actually change, so dragging a slider
+        // reloads the player once it settles rather than on every pixel of the drag.
+        val preview = remember(review.keep, review.captions) {
+            cleanupViewModel.previewComposition()
+        }
+
         CleanupSheet(
             review = review,
             status = cleanup.status,
             error = cleanup.error,
+            preview = preview,
             onSettingsChange = cleanupViewModel::updateSettings,
             onAddCaptions = cleanupViewModel::addCaptions,
             onSave = cleanupViewModel::save,

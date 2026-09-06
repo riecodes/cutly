@@ -91,8 +91,24 @@ class ClipExporter(private val context: Context) {
         captions: List<Segment> = emptyList(),
         outputHeight: Int = DEFAULT_HEIGHT
     ): File {
-        require(keep.isNotEmpty()) { "Nothing left to keep" }
         val output = File(context.cacheDir, "cutly_cut_${System.currentTimeMillis()}.mp4")
+        return runTransformer(cutComposition(source, keep, captions, outputHeight), output)
+    }
+
+    /**
+     * The cut, as a [Composition], before anything decides what to do with it.
+     *
+     * Split out from [exportCut] so the preview player and the export are driven by the same
+     * object. `CompositionPlayer` takes exactly this, so what the user watches is the file they
+     * will get rather than a second rendering path that can drift away from the first.
+     */
+    fun cutComposition(
+        source: Uri,
+        keep: List<Span>,
+        captions: List<Segment> = emptyList(),
+        outputHeight: Int = DEFAULT_HEIGHT
+    ): Composition {
+        require(keep.isNotEmpty()) { "Nothing left to keep" }
 
         val items = keep.map { span ->
             EditedMediaItem.Builder(
@@ -109,6 +125,10 @@ class ClipExporter(private val context: Context) {
                 .setEffects(
                     Effects(emptyList(), listOf(Presentation.createForHeight(outputHeight)))
                 )
+                // Required by CompositionPlayer, which computes the sequence duration up front and
+                // throws without it. Transformer discovers the duration itself, so the export
+                // worked without this and only the preview crashed.
+                .setDurationUs(span.durationMs * 1000)
                 .build()
         }
 
@@ -116,7 +136,7 @@ class ClipExporter(private val context: Context) {
             .addItems(items)
             .build()
 
-        val composition = Composition.Builder(sequence)
+        return Composition.Builder(sequence)
             // Captions go on the composition, not on each item: the items are many windows onto
             // one source, so a per-item presentation time restarts at every join and every caption
             // after the first cut would be placed against the wrong clock.
@@ -127,8 +147,6 @@ class ClipExporter(private val context: Context) {
                 }
             }
             .build()
-
-        return runTransformer(composition, output)
     }
 
     /**

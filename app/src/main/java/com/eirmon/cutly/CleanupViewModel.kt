@@ -10,6 +10,9 @@ import com.eirmon.cutly.audio.SilenceSettings
 import com.eirmon.cutly.audio.Span
 import com.eirmon.cutly.export.ClipExporter
 import com.eirmon.cutly.export.MediaSaver
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.transformer.Composition
+import androidx.annotation.OptIn
 import com.eirmon.cutly.transcribe.GeminiTranscriber
 import com.eirmon.cutly.transcribe.Segment
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +33,7 @@ import kotlinx.coroutines.launch
  * a picked video never becomes a [com.eirmon.cutly.model.Clip], so it never touches the take or
  * the clip store.
  */
+@OptIn(UnstableApi::class)
 class CleanupViewModel(application: Application) : AndroidViewModel(application) {
 
     data class UiState(
@@ -137,6 +141,27 @@ class CleanupViewModel(application: Application) : AndroidViewModel(application)
                 review = review.copy(settings = settings, keep = detect(levels, settings))
             )
         }
+    }
+
+    /**
+     * The current cut as something playable, for the preview above the sliders.
+     *
+     * Built from the same [ClipExporter.cutComposition] the export uses, so the preview cannot
+     * drift away from the file: if what you watch is wrong, the export is wrong the same way.
+     *
+     * Captions are remapped here exactly as [save] does. Previewing the source-timeline captions
+     * would show them sliding out of sync and send someone hunting a bug that is not there.
+     */
+    fun previewComposition(): Composition? {
+        val review = _state.value.review ?: return null
+        val source = analysis?.source ?: return null
+        if (review.keep.isEmpty()) return null
+
+        return exporter.cutComposition(
+            source,
+            review.keep,
+            Segment.remap(review.captions.orEmpty(), review.keep)
+        )
     }
 
     /** Encodes the cut and publishes it to Movies/Cutly. */

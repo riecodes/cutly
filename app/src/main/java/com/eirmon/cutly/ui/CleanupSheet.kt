@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.media3.transformer.Composition
 import com.eirmon.cutly.CleanupViewModel
 import com.eirmon.cutly.audio.SilenceSettings
 import com.eirmon.cutly.audio.Span
@@ -56,6 +57,8 @@ internal fun CleanupSheet(
     /** Non-null while this sheet's own work is running. */
     status: String?,
     error: String?,
+    /** The current cut, rebuilt by the caller whenever the kept spans change. */
+    preview: Composition?,
     onSettingsChange: (SilenceSettings) -> Unit,
     onAddCaptions: () -> Unit,
     onSave: () -> Unit,
@@ -108,6 +111,15 @@ internal fun CleanupSheet(
                 )
 
                 Spacer(Modifier.height(16.dp))
+
+                // Above the bar rather than below: the bar says where the cuts are, the preview
+                // says whether they sound right, and the second question is the one people have.
+                CutPreview(
+                    composition = preview,
+                    modifier = Modifier.height(200.dp).align(Alignment.CenterHorizontally)
+                )
+
+                Spacer(Modifier.height(14.dp))
 
                 KeepBar(keep = review.keep, totalMs = review.originalMs)
 
