@@ -3,6 +3,7 @@ package com.eirmon.cutly.camera
 import android.content.Context
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.util.Log
 import java.io.File
@@ -33,14 +34,20 @@ object ClipProbe {
             else frameCount * 1_000_000f / durationUs
     }
 
-    fun probe(file: File): Info? = probe(file.name, countFrames = true) {
-        setDataSource(file.absolutePath)
-    }
+    fun probe(file: File): Info? = probe(
+        label = file.name,
+        countFrames = true,
+        setExtractorSource = { setDataSource(file.absolutePath) },
+        setRetrieverSource = { setDataSource(file.absolutePath) }
+    )
 
     /** Metadata-only variant for export, where counting every frame would add no information. */
-    fun probeMetadata(file: File): Info? = probe(file.name, countFrames = false) {
-        setDataSource(file.absolutePath)
-    }
+    fun probeMetadata(file: File): Info? = probe(
+        label = file.name,
+        countFrames = false,
+        setExtractorSource = { setDataSource(file.absolutePath) },
+        setRetrieverSource = { setDataSource(file.absolutePath) }
+    )
 
     /**
      * Reads only container metadata for a picked video.
@@ -48,18 +55,22 @@ object ClipProbe {
      * Unlike recorded clips, picked videos do not need their frames counted to verify a camera
      * request. Avoiding that scan makes this effectively constant-time even for a long source.
      */
-    fun probe(context: Context, uri: Uri): Info? = probe(uri.toString(), countFrames = false) {
-        setDataSource(context, uri, null)
-    }
+    fun probe(context: Context, uri: Uri): Info? = probe(
+        label = uri.toString(),
+        countFrames = false,
+        setExtractorSource = { setDataSource(context, uri, null) },
+        setRetrieverSource = { setDataSource(context, uri) }
+    )
 
     private fun probe(
         label: String,
         countFrames: Boolean,
-        setDataSource: MediaExtractor.() -> Unit
+        setExtractorSource: MediaExtractor.() -> Unit,
+        setRetrieverSource: MediaMetadataRetriever.() -> Unit
     ): Info? {
         val extractor = MediaExtractor()
         return try {
-            extractor.setDataSource()
+            extractor.setExtractorSource()
 
             val trackIndex = (0 until extractor.trackCount).firstOrNull { index ->
                 extractor.getTrackFormat(index)
@@ -93,7 +104,8 @@ object ClipProbe {
                 } else {
                     declaredFps
                 },
-                bitrate = format.intOrNull(MediaFormat.KEY_BIT_RATE)?.takeIf { it > 0 },
+                bitrate = format.intOrNull(MediaFormat.KEY_BIT_RATE)?.takeIf { it > 0 }
+                    ?: videoBitrateFromContainer(extractor, setRetrieverSource),
                 frameCount = frames,
                 durationUs = durationUs
             ).also {
@@ -112,6 +124,42 @@ object ClipProbe {
         }
     }
 
+    /**
+     * What the video track is really worth when the track itself declines to say.
+     *
+     * MP4s written by the camera carry no `btrt` box, so the video format has no bitrate key and
+     * an export left to the encoder's own heuristic re-encodes 17 Mbps footage at about a quarter
+     * of that. The container knows its total rate, so the video share is that minus the audio.
+     */
+    private fun videoBitrateFromContainer(
+        extractor: MediaExtractor,
+        setRetrieverSource: MediaMetadataRetriever.() -> Unit
+    ): Int? {
+        val audioBitrate = (0 until extractor.trackCount)
+            .map { extractor.getTrackFormat(it) }
+            .firstOrNull { it.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true }
+            // A track with no declared rate is still taking bytes, so assume a typical AAC one
+            // rather than crediting the whole container to video.
+            ?.let { it.intOrNull(MediaFormat.KEY_BIT_RATE) ?: ASSUMED_AUDIO_BITRATE }
+            ?: 0
+
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setRetrieverSource()
+            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)
+                ?.toIntOrNull()
+                ?.minus(audioBitrate)
+                ?.takeIf { it > 0 }
+        } catch (error: Exception) {
+            Log.w(TAG, "container bitrate unavailable: $error")
+            null
+        } finally {
+            retriever.release()
+        }
+    }
+
     private fun MediaFormat.intOrNull(key: String): Int? =
         if (containsKey(key)) runCatching { getInteger(key) }.getOrNull() else null
+
+    private const val ASSUMED_AUDIO_BITRATE = 128_000
 }
