@@ -1,7 +1,9 @@
 package com.eirmon.cutly.camera
 
+import android.content.Context
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import android.net.Uri
 import android.util.Log
 import java.io.File
 
@@ -20,18 +22,44 @@ object ClipProbe {
     data class Info(
         val width: Int,
         val height: Int,
+        val frameRate: Float,
+        val bitrate: Int?,
         val frameCount: Int,
         val durationUs: Long
     ) {
         /** Measured, not declared: frames actually muxed over the actual duration. */
         val measuredFps: Float
-            get() = if (durationUs <= 0) 0f else frameCount * 1_000_000f / durationUs
+            get() = if (durationUs <= 0 || frameCount <= 0) frameRate
+            else frameCount * 1_000_000f / durationUs
     }
 
-    fun probe(file: File): Info? {
+    fun probe(file: File): Info? = probe(file.name, countFrames = true) {
+        setDataSource(file.absolutePath)
+    }
+
+    /** Metadata-only variant for export, where counting every frame would add no information. */
+    fun probeMetadata(file: File): Info? = probe(file.name, countFrames = false) {
+        setDataSource(file.absolutePath)
+    }
+
+    /**
+     * Reads only container metadata for a picked video.
+     *
+     * Unlike recorded clips, picked videos do not need their frames counted to verify a camera
+     * request. Avoiding that scan makes this effectively constant-time even for a long source.
+     */
+    fun probe(context: Context, uri: Uri): Info? = probe(uri.toString(), countFrames = false) {
+        setDataSource(context, uri, null)
+    }
+
+    private fun probe(
+        label: String,
+        countFrames: Boolean,
+        setDataSource: MediaExtractor.() -> Unit
+    ): Info? {
         val extractor = MediaExtractor()
         return try {
-            extractor.setDataSource(file.absolutePath)
+            extractor.setDataSource()
 
             val trackIndex = (0 until extractor.trackCount).firstOrNull { index ->
                 extractor.getTrackFormat(index)
@@ -40,38 +68,50 @@ object ClipProbe {
             } ?: return null
 
             val format = extractor.getTrackFormat(trackIndex)
-            extractor.selectTrack(trackIndex)
 
             var frames = 0
             var lastSampleUs = 0L
-            while (extractor.sampleTime >= 0) {
-                lastSampleUs = extractor.sampleTime
-                frames++
-                if (!extractor.advance()) break
+            if (countFrames) {
+                extractor.selectTrack(trackIndex)
+                while (extractor.sampleTime >= 0) {
+                    lastSampleUs = extractor.sampleTime
+                    frames++
+                    if (!extractor.advance()) break
+                }
             }
 
             val durationUs = format.takeIf { it.containsKey(MediaFormat.KEY_DURATION) }
                 ?.getLong(MediaFormat.KEY_DURATION)
                 ?: lastSampleUs
+            val declaredFps = format.intOrNull(MediaFormat.KEY_FRAME_RATE)?.toFloat() ?: 0f
 
             Info(
                 width = format.getInteger(MediaFormat.KEY_WIDTH),
                 height = format.getInteger(MediaFormat.KEY_HEIGHT),
+                frameRate = if (frames > 0 && durationUs > 0) {
+                    frames * 1_000_000f / durationUs
+                } else {
+                    declaredFps
+                },
+                bitrate = format.intOrNull(MediaFormat.KEY_BIT_RATE)?.takeIf { it > 0 },
                 frameCount = frames,
                 durationUs = durationUs
             ).also {
                 Log.i(
                     TAG,
-                    "clip=${file.name} ${it.width}x${it.height} " +
+                    "clip=$label ${it.width}x${it.height} " +
                         "frames=${it.frameCount} durationMs=${it.durationUs / 1000} " +
-                        "measuredFps=${"%.2f".format(it.measuredFps)}"
+                        "fps=${"%.2f".format(it.frameRate)} bitrate=${it.bitrate ?: "unknown"}"
                 )
             }
         } catch (error: Exception) {
-            Log.w(TAG, "probe failed for ${file.name}: $error")
+            Log.w(TAG, "probe failed for $label: $error")
             null
         } finally {
             extractor.release()
         }
     }
+
+    private fun MediaFormat.intOrNull(key: String): Int? =
+        if (containsKey(key)) runCatching { getInteger(key) }.getOrNull() else null
 }

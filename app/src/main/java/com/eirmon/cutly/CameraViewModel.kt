@@ -355,10 +355,9 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     /** Exports every clip as its own video file in Movies/Cutly. */
     fun exportSeparateClips() = export { clips ->
-        val height = clips.maxOf { it.heightPx }
         clips.forEachIndexed { index, clip ->
             _state.update { it.copy(status = "Exporting part ${index + 1}/${clips.size}") }
-            val normalized = exporter.normalize(clip, height)
+            val normalized = exporter.normalize(clip)
             withContext(Dispatchers.IO) {
                 MediaSaver.saveVideo(
                     getApplication(),
@@ -374,7 +373,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     /** Exports the whole take concatenated into a single video. */
     fun exportMerged() = export { clips ->
         _state.update { it.copy(status = "Merging ${clips.size} clip(s)") }
-        val merged = exporter.merge(clips, clips.maxOf { it.heightPx })
+        val merged = exporter.merge(clips)
         withContext(Dispatchers.IO) {
             MediaSaver.saveVideo(
                 getApplication(),

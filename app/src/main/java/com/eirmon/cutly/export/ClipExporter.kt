@@ -13,16 +13,21 @@ import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.Presentation
 import androidx.media3.effect.TextureOverlay
 import androidx.media3.transformer.Composition
+import androidx.media3.transformer.DefaultEncoderFactory
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.Transformer
+import androidx.media3.transformer.VideoEncoderSettings
 import com.eirmon.cutly.audio.Span
+import com.eirmon.cutly.camera.ClipProbe
 import com.eirmon.cutly.model.Clip
 import com.eirmon.cutly.transcribe.Segment
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -45,11 +50,20 @@ class ClipExporter(private val context: Context) {
      * format chip lets the user change resolution between clips — so each item is normalised to
      * one height with a [Presentation] effect before the sequence is built.
      */
-    suspend fun merge(clips: List<Clip>, outputHeight: Int = DEFAULT_HEIGHT): File {
+    suspend fun merge(clips: List<Clip>): File {
         require(clips.isNotEmpty()) { "Nothing to merge" }
         val output = File(context.cacheDir, "cutly_merged_${System.currentTimeMillis()}.mp4")
+        val sources = withContext(Dispatchers.IO) {
+            clips.map { clip -> clip to ClipProbe.probeMetadata(clip.file) }
+        }
+        val quality = ExportQuality.merge(sources.map { (clip, info) ->
+            ExportQuality.Source(info?.height ?: clip.heightPx, info?.bitrate)
+        })
+        val outputHeight = requireNotNull(quality.height)
 
-        val items = clips.map { editedItem(it, outputHeight) }
+        val items = sources.map { (clip, info) ->
+            editedItem(clip, info?.height ?: clip.heightPx, outputHeight)
+        }
 
         // Declaring both track types makes Transformer fill silence for any clip recorded without
         // audio, so a mic-denied clip cannot desync the rest of the take.
@@ -57,21 +71,25 @@ class ClipExporter(private val context: Context) {
             .addItems(items)
             .build()
 
-        return runTransformer(Composition.Builder(sequence).build(), output)
+        return runTransformer(Composition.Builder(sequence).build(), output, quality.bitrate)
     }
 
     /**
-     * Re-encodes one clip on its own, used for per-clip export so every delivered file has a
-     * consistent size, speed and orientation regardless of which lens shot it.
+     * Re-encodes one clip on its own, retaining its captured resolution and bitrate while applying
+     * its speed. A single-source export has no mixed formats to normalise against.
      */
-    suspend fun normalize(clip: Clip, outputHeight: Int = DEFAULT_HEIGHT): File {
+    suspend fun normalize(clip: Clip): File {
         val output = File(context.cacheDir, "cutly_part_${clip.file.nameWithoutExtension}.mp4")
+        val info = withContext(Dispatchers.IO) { ClipProbe.probeMetadata(clip.file) }
+        val quality = ExportQuality.single(
+            ExportQuality.Source(info?.height ?: clip.heightPx, info?.bitrate)
+        )
 
         val sequence = EditedMediaItemSequence.Builder(AUDIO_AND_VIDEO)
-            .addItem(editedItem(clip, outputHeight))
+            .addItem(editedItem(clip, info?.height ?: clip.heightPx, quality.height))
             .build()
 
-        return runTransformer(Composition.Builder(sequence).build(), output)
+        return runTransformer(Composition.Builder(sequence).build(), output, quality.bitrate)
     }
 
     /**
@@ -82,17 +100,23 @@ class ClipExporter(private val context: Context) {
      * pointed at one file instead of many.
      *
      * Precise cuts need re-encoding, because a transmux can only start on a key frame and would
-     * drag every boundary backwards by up to a key-frame interval. The [Presentation] effect
-     * forces the re-encode anyway, so exact boundaries cost nothing extra here.
+     * drag every boundary backwards by up to a key-frame interval. Composition video is therefore
+     * left in its default transcode mode even when no resize effect is necessary.
      */
     suspend fun exportCut(
         source: Uri,
         keep: List<Span>,
         captions: List<Segment> = emptyList(),
-        outputHeight: Int = DEFAULT_HEIGHT
+        sourceInfo: ClipProbe.Info? = null
     ): File {
         val output = File(context.cacheDir, "cutly_cut_${System.currentTimeMillis()}.mp4")
-        return runTransformer(cutComposition(source, keep, captions, outputHeight), output)
+        val info = sourceInfo ?: withContext(Dispatchers.IO) { ClipProbe.probe(context, source) }
+        val quality = ExportQuality.single(ExportQuality.Source(info?.height, info?.bitrate))
+        return runTransformer(
+            cutComposition(source, keep, captions, info?.height, quality.height),
+            output,
+            quality.bitrate
+        )
     }
 
     /**
@@ -106,7 +130,8 @@ class ClipExporter(private val context: Context) {
         source: Uri,
         keep: List<Span>,
         captions: List<Segment> = emptyList(),
-        outputHeight: Int = DEFAULT_HEIGHT
+        sourceHeight: Int? = null,
+        outputHeight: Int? = sourceHeight
     ): Composition {
         require(keep.isNotEmpty()) { "Nothing left to keep" }
 
@@ -123,7 +148,7 @@ class ClipExporter(private val context: Context) {
                     .build()
             )
                 .setEffects(
-                    Effects(emptyList(), listOf(Presentation.createForHeight(outputHeight)))
+                    Effects(emptyList(), resizeEffects(sourceHeight, outputHeight))
                 )
                 // Required by CompositionPlayer, which computes the sequence duration up front and
                 // throws without it. Transformer discovers the duration itself, so the export
@@ -193,10 +218,14 @@ class ClipExporter(private val context: Context) {
      * why this no longer pairs a video effect with a separate audio processor — that older split
      * was easy to desync.
      */
-    private fun editedItem(clip: Clip, outputHeight: Int): EditedMediaItem {
+    private fun editedItem(
+        clip: Clip,
+        sourceHeight: Int,
+        outputHeight: Int?
+    ): EditedMediaItem {
         val builder = EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(clip.file)))
             .setEffects(
-                Effects(emptyList(), listOf(Presentation.createForHeight(outputHeight)))
+                Effects(emptyList(), resizeEffects(sourceHeight, outputHeight))
             )
 
         if (clip.speed != 1f) {
@@ -208,15 +237,27 @@ class ClipExporter(private val context: Context) {
         return builder.build()
     }
 
+    /** Scaling is an encode effect, so do not add it when it would be an identity transform. */
+    private fun resizeEffects(sourceHeight: Int?, outputHeight: Int?): List<Presentation> =
+        if (outputHeight != null && sourceHeight != outputHeight) {
+            listOf(Presentation.createForHeight(outputHeight))
+        } else {
+            emptyList()
+        }
+
     /** A speed that never changes mid-clip — each clip carries exactly one factor. */
     private class ConstantSpeed(private val speed: Float) : SpeedProvider {
         override fun getSpeed(timeUs: Long): Float = speed
         override fun getNextSpeedChangeTimeUs(timeUs: Long): Long = C.TIME_UNSET
     }
 
-    private suspend fun runTransformer(composition: Composition, output: File): File =
+    private suspend fun runTransformer(
+        composition: Composition,
+        output: File,
+        videoBitrate: Int? = null
+    ): File =
         suspendCancellableCoroutine { continuation ->
-            val transformer = Transformer.Builder(context)
+            val builder = Transformer.Builder(context)
                 .addListener(object : Transformer.Listener {
                     override fun onCompleted(composition: Composition, result: ExportResult) {
                         continuation.resume(output)
@@ -234,7 +275,19 @@ class ClipExporter(private val context: Context) {
                         continuation.resumeWithException(exception)
                     }
                 })
-                .build()
+
+            if (videoBitrate != null) {
+                val encoderFactory = DefaultEncoderFactory.Builder(context)
+                    .setRequestedVideoEncoderSettings(
+                        VideoEncoderSettings.Builder()
+                            .setBitrate(videoBitrate)
+                            .build()
+                    )
+                    .build()
+                builder.setEncoderFactory(encoderFactory)
+            }
+
+            val transformer = builder.build()
 
             continuation.invokeOnCancellation {
                 transformer.cancel()
@@ -246,7 +299,6 @@ class ClipExporter(private val context: Context) {
 
     private companion object {
         const val TAG = "Cutly"
-        const val DEFAULT_HEIGHT = 1080
         val AUDIO_AND_VIDEO = setOf(C.TRACK_TYPE_AUDIO, C.TRACK_TYPE_VIDEO)
         val AUDIO_ONLY = setOf(C.TRACK_TYPE_AUDIO)
     }

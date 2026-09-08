@@ -8,6 +8,7 @@ import com.eirmon.cutly.audio.PcmDecoder
 import com.eirmon.cutly.audio.SilenceDetector
 import com.eirmon.cutly.audio.SilenceSettings
 import com.eirmon.cutly.audio.Span
+import com.eirmon.cutly.camera.ClipProbe
 import com.eirmon.cutly.export.ClipExporter
 import com.eirmon.cutly.export.MediaSaver
 import androidx.media3.common.util.UnstableApi
@@ -15,11 +16,13 @@ import androidx.media3.transformer.Composition
 import androidx.annotation.OptIn
 import com.eirmon.cutly.transcribe.GeminiTranscriber
 import com.eirmon.cutly.transcribe.Segment
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The cut service: one video off the device, the dead air taken out of it.
@@ -80,7 +83,11 @@ class CleanupViewModel(application: Application) : AndroidViewModel(application)
      * A ten-minute take is about 120 KB of readings, which is why keeping it costs nothing and
      * re-decoding on every slider move would cost seconds.
      */
-    private class Analysis(val source: Uri, val levels: PcmDecoder.Levels)
+    private class Analysis(
+        val source: Uri,
+        val levels: PcmDecoder.Levels,
+        val videoInfo: ClipProbe.Info?
+    )
 
     private val exporter = ClipExporter(application)
     private val transcriber = GeminiTranscriber(BuildConfig.GEMINI_API_KEY)
@@ -98,18 +105,21 @@ class CleanupViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             // Transformer needs the main looper, so extraction stays on it; the decode moves off.
             val result = runCatching {
+                val videoInfo = withContext(Dispatchers.IO) {
+                    ClipProbe.probe(getApplication(), video)
+                }
                 val audio = exporter.extractAudio(video)
                 try {
                     _state.update { it.copy(status = "Measuring silence…") }
-                    PcmDecoder.levels(audio)
+                    PcmDecoder.levels(audio) to videoInfo
                 } finally {
                     audio.delete()
                 }
             }
 
             result.fold(
-                onSuccess = { levels ->
-                    analysis = Analysis(video, levels)
+                onSuccess = { (levels, videoInfo) ->
+                    analysis = Analysis(video, levels, videoInfo)
                     val settings = SilenceSettings()
                     _state.update {
                         it.copy(
@@ -160,7 +170,8 @@ class CleanupViewModel(application: Application) : AndroidViewModel(application)
         return exporter.cutComposition(
             source,
             review.keep,
-            Segment.remap(review.captions.orEmpty(), review.keep)
+            Segment.remap(review.captions.orEmpty(), review.keep),
+            analysis?.videoInfo?.height
         )
     }
 
@@ -179,7 +190,7 @@ class CleanupViewModel(application: Application) : AndroidViewModel(application)
             // pulls the captions after it earlier — skip this and the drift grows with each cut.
             val captions = Segment.remap(review.captions.orEmpty(), review.keep)
             val result = runCatching {
-                val cut = exporter.exportCut(source, review.keep, captions)
+                val cut = exporter.exportCut(source, review.keep, captions, analysis?.videoInfo)
                 try {
                     MediaSaver.saveVideo(getApplication(), cut, name)
                 } finally {
