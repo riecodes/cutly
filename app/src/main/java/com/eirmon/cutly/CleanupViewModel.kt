@@ -16,6 +16,7 @@ import androidx.media3.transformer.Composition
 import androidx.annotation.OptIn
 import com.eirmon.cutly.transcribe.GeminiTranscriber
 import com.eirmon.cutly.transcribe.Segment
+import com.eirmon.cutly.transcribe.Transcriber
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -90,7 +91,7 @@ class CleanupViewModel(application: Application) : AndroidViewModel(application)
     )
 
     private val exporter = ClipExporter(application)
-    private val transcriber = GeminiTranscriber(BuildConfig.GEMINI_API_KEY)
+    private val transcriber: Transcriber = GeminiTranscriber(BuildConfig.GEMINI_API_KEY)
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()

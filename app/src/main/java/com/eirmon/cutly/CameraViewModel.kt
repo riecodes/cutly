@@ -18,6 +18,7 @@ import com.eirmon.cutly.model.VideoFormat
 import com.eirmon.cutly.record.ClipRecorder
 import com.eirmon.cutly.transcribe.GeminiTranscriber
 import com.eirmon.cutly.transcribe.Segment
+import com.eirmon.cutly.transcribe.Transcriber
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -68,7 +69,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     private val store = ClipStore(application)
     private val recorder = ClipRecorder(application)
     private val exporter = ClipExporter(application)
-    private val transcriber = GeminiTranscriber(BuildConfig.GEMINI_API_KEY)
+    private val transcriber: Transcriber = GeminiTranscriber(BuildConfig.GEMINI_API_KEY)
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()

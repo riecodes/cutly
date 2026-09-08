@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.eirmon.cutly.export.ClipExporter
 import com.eirmon.cutly.transcribe.OnDeviceTranscriber
 import com.eirmon.cutly.transcribe.Segment
+import com.eirmon.cutly.transcribe.Transcriber
 import com.eirmon.cutly.transcribe.TranscriptionLanguage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,8 +46,6 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
     )
 
     private val exporter = ClipExporter(application)
-    private val onDevice = OnDeviceTranscriber(application)
-
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
@@ -54,7 +53,9 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
         // Asking the recogniser costs a service binding, so it happens once here rather than on
         // every recomposition of the picker.
         viewModelScope.launch {
-            val languages = runCatching { onDevice.languages() }.getOrDefault(emptyList())
+            val languages = runCatching {
+                OnDeviceTranscriber.languages(application)
+            }.getOrDefault(emptyList())
             _state.update {
                 it.copy(
                     languages = languages,
@@ -82,12 +83,13 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
 
         _state.update { it.copy(isBusy = true, status = "Extracting audio…", error = null) }
         viewModelScope.launch {
+            val transcriber: Transcriber = OnDeviceTranscriber(getApplication(), language)
             // Transformer needs the main looper, so this stays on it; the decode moves itself off.
             val result = runCatching {
                 val audio = exporter.extractAudio(video)
                 _state.update { it.copy(status = "Transcribing on device…") }
                 try {
-                    Segment.render(onDevice.transcribe(audio, language))
+                    Segment.render(transcriber.transcribe(audio))
                 } finally {
                     audio.delete()
                 }

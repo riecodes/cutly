@@ -45,44 +45,22 @@ import kotlin.coroutines.resumeWithException
  *
  * The recogniser is a bound service driven from the main thread, so the session stays on it; the
  * decode inside [PcmDecoder.toMonoPcm] moves itself off.
+ *
+ * [language] is fixed at construction rather than appearing on [transcribe]. Cloud and
+ * multilingual backends do not need a language choice, so putting it on the common interface
+ * would make half the implementations accept and ignore a misleading argument.
  */
-class OnDeviceTranscriber(private val context: Context) {
-
-    /**
-     * Every language this phone's recogniser will accept, the ones already downloaded first.
-     *
-     * Empty when the recogniser will not answer, which the caller should treat as "on-device
-     * transcription is unavailable here" rather than as "no languages exist".
-     */
-    suspend fun languages(): List<TranscriptionLanguage> {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return emptyList()
-        if (!SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) return emptyList()
-
-        val support = support(PROBE_TAG) ?: return emptyList()
-        val installed = support.installedOnDeviceLanguages
-        Log.i(
-            TAG,
-            "installed=$installed supported=${support.supportedOnDeviceLanguages} " +
-                "pending=${support.pendingOnDeviceLanguages}"
-        )
-
-        val downloadable = (support.supportedOnDeviceLanguages + support.pendingOnDeviceLanguages)
-            .filterNot { candidate -> installed.any { it.equals(candidate, ignoreCase = true) } }
-            .distinct()
-
-        // Installed first: those work now, the rest cost a download before they do.
-        return installed.map { TranscriptionLanguage.of(it, installed = true) }
-            .sortedBy { it.label } +
-            downloadable.map { TranscriptionLanguage.of(it, installed = false) }
-                .sortedBy { it.label }
-    }
+class OnDeviceTranscriber(
+    private val context: Context,
+    private val language: TranscriptionLanguage
+) : Transcriber {
 
     /**
      * @param audio an M4A from [com.eirmon.cutly.export.ClipExporter.extractAudio].
      * @return the transcript in order, empty when nothing intelligible was heard.
      * @throws IOException when the device cannot do this, or the recogniser gives up.
      */
-    suspend fun transcribe(audio: File, language: TranscriptionLanguage): List<Segment> {
+    override suspend fun transcribe(audio: File): List<Segment> {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
             throw IOException("On-device transcription needs Android 13 or newer")
         }
@@ -119,7 +97,8 @@ class OnDeviceTranscriber(private val context: Context) {
      * at the same time. Asking the recogniser directly is the only way to know.
      */
     private suspend fun ensureInstalled(language: TranscriptionLanguage) {
-        val support = support(language.tag) ?: return  // No answer: let the attempt report it.
+        val support = support(context, language.tag)
+            ?: return  // No answer: let the attempt report it.
 
         val installed = support.installedOnDeviceLanguages
         val supported = support.supportedOnDeviceLanguages
@@ -149,35 +128,6 @@ class OnDeviceTranscriber(private val context: Context) {
         )
     }
 
-    /** Asks the recogniser what it can do, or null when it will not say. */
-    private suspend fun support(tag: String): RecognitionSupport? =
-        withContext(Dispatchers.Main) {
-            suspendCancellableCoroutine { continuation ->
-                val recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
-                var done = false
-                fun settle(value: RecognitionSupport?) {
-                    if (done) return
-                    done = true
-                    recognizer.destroy()
-                    continuation.resume(value)
-                }
-                recognizer.checkRecognitionSupport(
-                    languageIntent(tag),
-                    context.mainExecutor,
-                    object : RecognitionSupportCallback {
-                        override fun onSupportResult(recognitionSupport: RecognitionSupport) =
-                            settle(recognitionSupport)
-
-                        override fun onError(error: Int) {
-                            Log.i(TAG, "checkRecognitionSupport error=$error")
-                            settle(null)
-                        }
-                    }
-                )
-                continuation.invokeOnCancellation { settle(null) }
-            }
-        }
-
     private fun requestDownload(language: TranscriptionLanguage) {
         val recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
         recognizer.triggerModelDownload(
@@ -201,15 +151,6 @@ class OnDeviceTranscriber(private val context: Context) {
             }
         )
     }
-
-    private fun languageIntent(tag: String): Intent =
-        Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(
-                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-            )
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, tag)
-        }
 
     /**
      * Places recognised lines on the timeline using the audio's own silences.
@@ -352,32 +293,102 @@ class OnDeviceTranscriber(private val context: Context) {
      */
     private class Heard(val words: List<Word>, val lines: List<String>)
 
-    private companion object {
+    companion object {
 
-        const val TAG = "Cutly"
+        private const val TAG = "Cutly"
 
         /** The lists come back device-wide, so the probe's tag only has to be a valid one. */
-        const val PROBE_TAG = "en-US"
+        private const val PROBE_TAG = "en-US"
+
+        /**
+         * Every language this phone's recogniser will accept, the ones already downloaded first.
+         *
+         * Empty when the recogniser will not answer, which the caller should treat as "on-device
+         * transcription is unavailable here" rather than as "no languages exist".
+         */
+        suspend fun languages(context: Context): List<TranscriptionLanguage> {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return emptyList()
+            if (!SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) return emptyList()
+
+            val support = support(context, PROBE_TAG) ?: return emptyList()
+            val installed = support.installedOnDeviceLanguages
+            Log.i(
+                TAG,
+                "installed=$installed supported=${support.supportedOnDeviceLanguages} " +
+                    "pending=${support.pendingOnDeviceLanguages}"
+            )
+
+            val downloadable =
+                (support.supportedOnDeviceLanguages + support.pendingOnDeviceLanguages)
+                    .filterNot { candidate ->
+                        installed.any { it.equals(candidate, ignoreCase = true) }
+                    }
+                    .distinct()
+
+            // Installed first: those work now, the rest cost a download before they do.
+            return installed.map { TranscriptionLanguage.of(it, installed = true) }
+                .sortedBy { it.label } +
+                downloadable.map { TranscriptionLanguage.of(it, installed = false) }
+                    .sortedBy { it.label }
+        }
+
+        /** Asks the recogniser what it can do, or null when it will not say. */
+        private suspend fun support(context: Context, tag: String): RecognitionSupport? =
+            withContext(Dispatchers.Main) {
+                suspendCancellableCoroutine { continuation ->
+                    val recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+                    var done = false
+                    fun settle(value: RecognitionSupport?) {
+                        if (done) return
+                        done = true
+                        recognizer.destroy()
+                        continuation.resume(value)
+                    }
+                    recognizer.checkRecognitionSupport(
+                        languageIntent(tag),
+                        context.mainExecutor,
+                        object : RecognitionSupportCallback {
+                            override fun onSupportResult(recognitionSupport: RecognitionSupport) =
+                                settle(recognitionSupport)
+
+                            override fun onError(error: Int) {
+                                Log.i(TAG, "checkRecognitionSupport error=$error")
+                                settle(null)
+                            }
+                        }
+                    )
+                    continuation.invokeOnCancellation { settle(null) }
+                }
+            }
+
+        private fun languageIntent(tag: String): Intent =
+            Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(
+                    RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+                )
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, tag)
+            }
 
         /**
          * Recognisers report tags inconsistently: fil-PH, fil_PH, and bare fil all mean Filipino.
          * Comparing on the language subtag alone avoids rejecting a model that is actually there.
          */
-        fun String.matches(language: TranscriptionLanguage): Boolean {
+        private fun String.matches(language: TranscriptionLanguage): Boolean {
             val theirs = replace('_', '-').lowercase()
             val ours = language.tag.lowercase()
             return theirs == ours || theirs.substringBefore('-') == ours.substringBefore('-')
         }
 
         /** The recogniser's best transcript for one segment, if it reported one. */
-        fun Bundle.lines(): List<String> =
+        private fun Bundle.lines(): List<String> =
             getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 ?.firstOrNull()
                 ?.takeIf { it.isNotBlank() }
                 ?.let { listOf(it) }
                 .orEmpty()
 
-        fun Bundle.words(): List<Word> =
+        private fun Bundle.words(): List<Word> =
             getParcelableArrayList(SpeechRecognizer.RECOGNITION_PARTS, RecognitionPart::class.java)
                 .orEmpty()
                 .map { Word(it.timestampMillis, it.formattedText ?: it.rawText) }
@@ -389,7 +400,7 @@ class OnDeviceTranscriber(private val context: Context) {
          * the time it is on screen and should break where the speaker actually paused, so this
          * breaks on either a real gap or a word count.
          */
-        fun group(words: List<Word>): List<Segment> {
+        private fun group(words: List<Word>): List<Segment> {
             val ordered = words.filter { it.text.isNotBlank() }.sortedBy { it.startMs }
             if (ordered.isEmpty()) return emptyList()
 
@@ -421,7 +432,7 @@ class OnDeviceTranscriber(private val context: Context) {
             return segments
         }
 
-        fun message(error: Int, language: TranscriptionLanguage): String = when (error) {
+        private fun message(error: Int, language: TranscriptionLanguage): String = when (error) {
             SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE,
             SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ->
                 "${language.label} is not installed for offline recognition. Add it in the " +
@@ -440,15 +451,15 @@ class OnDeviceTranscriber(private val context: Context) {
         }
 
         /** How long a gap the recogniser should sit through before calling the take finished. */
-        const val SILENCE_TOLERANCE_MS = 15_000
-        const val MIN_SESSION_MS = 600_000
+        private const val SILENCE_TOLERANCE_MS = 15_000
+        private const val MIN_SESSION_MS = 600_000
 
         /** A pause this long reads as the end of a thought, so the caption breaks there. */
-        const val BREAK_GAP_MS = 700L
-        const val MAX_WORDS = 8
+        private const val BREAK_GAP_MS = 700L
+        private const val MAX_WORDS = 8
 
         /** Floors for timings the recogniser does not give: a last word's length, and a line's. */
-        const val LAST_WORD_MS = 400L
-        const val MIN_LINE_MS = 300L
+        private const val LAST_WORD_MS = 400L
+        private const val MIN_LINE_MS = 300L
     }
 }

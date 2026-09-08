@@ -22,14 +22,14 @@ import java.util.Base64
  *
  * HttpURLConnection and org.json, both in the platform, so transcription adds no dependency.
  */
-class GeminiTranscriber(private val apiKey: String) {
+class GeminiTranscriber(private val apiKey: String) : Transcriber {
 
     /**
      * @param audio an M4A produced by [com.eirmon.cutly.export.ClipExporter.extractAudio].
      * @return the transcript in order, empty when the model heard no speech.
      * @throws IOException on a transport failure, an API error, or an empty response.
      */
-    suspend fun transcribe(audio: File): List<Segment> = withContext(Dispatchers.IO) {
+    override suspend fun transcribe(audio: File): List<Segment> = withContext(Dispatchers.IO) {
         // Base64 inflates by 4/3, and the whole request — prompt included — has to fit Gemini's
         // 20 MB inline cap. Refuse early with something the user can act on rather than posting
         // fifteen megabytes to get a 400 back.
