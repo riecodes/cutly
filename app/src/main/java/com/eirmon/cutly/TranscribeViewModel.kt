@@ -7,13 +7,19 @@ import androidx.lifecycle.viewModelScope
 import com.eirmon.cutly.export.ClipExporter
 import com.eirmon.cutly.transcribe.OnDeviceTranscriber
 import com.eirmon.cutly.transcribe.Segment
+import com.eirmon.cutly.transcribe.SherpaModelManager
+import com.eirmon.cutly.transcribe.SherpaModelState
+import com.eirmon.cutly.transcribe.SherpaTranscriber
 import com.eirmon.cutly.transcribe.Transcriber
 import com.eirmon.cutly.transcribe.TranscriptionLanguage
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+enum class TranscriptionEngine { SYSTEM, SHERPA }
 
 /**
  * The upload service: one video off the device, one transcript back.
@@ -42,11 +48,21 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
          * the user makes rather than something to detect: a Taglish take is transcribed by
          * whichever half it is mostly in.
          */
-        val language: TranscriptionLanguage? = null
+        val language: TranscriptionLanguage? = null,
+        /** Which offline recogniser handles the next picked video. */
+        val engine: TranscriptionEngine = TranscriptionEngine.SYSTEM,
+        /** Download/install state for the optional multilingual Whisper model. */
+        val sherpaModel: SherpaModelState = SherpaModelState.Missing
     )
 
     private val exporter = ClipExporter(application)
-    private val _state = MutableStateFlow(UiState())
+    private val sherpa = SherpaModelManager(application)
+    private val _state = MutableStateFlow(
+        UiState(
+            engine = if (sherpa.isSelected()) TranscriptionEngine.SHERPA
+            else TranscriptionEngine.SYSTEM
+        )
+    )
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     init {
@@ -65,16 +81,98 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
                 )
             }
         }
+
+        // DownloadManager survives this process. Polling its persisted ids reconnects the UI to
+        // an in-flight transfer after recreation, then performs the integrity-checked install.
+        viewModelScope.launch {
+            while (true) {
+                val modelState = runCatching { sherpa.state() }
+                    .getOrElse { SherpaModelState.Failed(it.message ?: "Could not read model") }
+                _state.update { current -> current.copy(sherpaModel = modelState) }
+
+                if (modelState is SherpaModelState.Verifying) {
+                    runCatching { sherpa.install() }.fold(
+                        onSuccess = {
+                            sherpa.select(true)
+                            _state.update {
+                                it.copy(
+                                    sherpaModel = SherpaModelState.Ready,
+                                    engine = TranscriptionEngine.SHERPA
+                                )
+                            }
+                        },
+                        onFailure = { failure ->
+                            _state.update {
+                                it.copy(
+                                    sherpaModel = SherpaModelState.Failed(
+                                        failure.message ?: "Model verification failed"
+                                    )
+                                )
+                            }
+                        }
+                    )
+                }
+
+                delay(if (modelState is SherpaModelState.Downloading) 500 else 2_000)
+            }
+        }
     }
 
     fun setLanguage(language: TranscriptionLanguage) {
         _state.update { if (it.isBusy) it else it.copy(language = language) }
     }
 
+    fun downloadSherpaModel() {
+        if (_state.value.isBusy || _state.value.sherpaModel is SherpaModelState.Downloading) return
+        _state.update {
+            it.copy(
+                sherpaModel = SherpaModelState.Downloading(0, SherpaModelManager.TOTAL_BYTES)
+            )
+        }
+        viewModelScope.launch {
+            runCatching { sherpa.download() }
+                .onFailure { failure ->
+                    _state.update {
+                        it.copy(
+                            sherpaModel = SherpaModelState.Failed(
+                                failure.message ?: "Could not start model download"
+                            )
+                        )
+                    }
+                }
+        }
+    }
+
+    fun deleteSherpaModel() {
+        if (_state.value.isBusy) return
+        viewModelScope.launch {
+            sherpa.delete()
+            _state.update {
+                it.copy(
+                    sherpaModel = SherpaModelState.Missing,
+                    engine = TranscriptionEngine.SYSTEM
+                )
+            }
+        }
+    }
+
+    fun useSherpaModel() {
+        if (_state.value.isBusy || _state.value.sherpaModel !is SherpaModelState.Ready) return
+        sherpa.select(true)
+        _state.update { it.copy(engine = TranscriptionEngine.SHERPA) }
+    }
+
+    fun useSystemRecognizer() {
+        if (_state.value.isBusy) return
+        sherpa.select(false)
+        _state.update { it.copy(engine = TranscriptionEngine.SYSTEM) }
+    }
+
     fun transcribe(video: Uri) {
         if (_state.value.isBusy) return
-        val language = _state.value.language
-        if (language == null) {
+        val current = _state.value
+        val language = current.language
+        if (current.engine == TranscriptionEngine.SYSTEM && language == null) {
             _state.update {
                 it.copy(error = "This phone has no on-device speech recogniser.")
             }
@@ -83,11 +181,27 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
 
         _state.update { it.copy(isBusy = true, status = "Extracting audio…", error = null) }
         viewModelScope.launch {
-            val transcriber: Transcriber = OnDeviceTranscriber(getApplication(), language)
             // Transformer needs the main looper, so this stays on it; the decode moves itself off.
             val result = runCatching {
+                val transcriber: Transcriber = when (current.engine) {
+                    TranscriptionEngine.SYSTEM ->
+                        OnDeviceTranscriber(getApplication(), requireNotNull(language))
+                    TranscriptionEngine.SHERPA -> {
+                        val files = sherpa.files()
+                            ?: error("The offline Whisper model is not installed")
+                        SherpaTranscriber(getApplication(), files)
+                    }
+                }
                 val audio = exporter.extractAudio(video)
-                _state.update { it.copy(status = "Transcribing on device…") }
+                _state.update {
+                    it.copy(
+                        status = if (current.engine == TranscriptionEngine.SHERPA) {
+                            "Transcribing with offline Whisper…"
+                        } else {
+                            "Transcribing on device…"
+                        }
+                    )
+                }
                 try {
                     Segment.render(transcriber.transcribe(audio))
                 } finally {

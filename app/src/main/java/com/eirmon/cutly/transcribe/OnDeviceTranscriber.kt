@@ -15,8 +15,6 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
 import com.eirmon.cutly.audio.PcmDecoder
-import com.eirmon.cutly.audio.SilenceDetector
-import com.eirmon.cutly.audio.Span
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -85,7 +83,7 @@ class OnDeviceTranscriber(
 
         // The recogniser's own timings win whenever it gives any; only reconstruct when it does not.
         return if (heard.words.isNotEmpty()) group(heard.words)
-        else align(heard.lines, PcmDecoder.levels(audio))
+        else SegmentAligner.align(heard.lines, PcmDecoder.levels(audio))
     }
 
     /**
@@ -150,37 +148,6 @@ class OnDeviceTranscriber(
                 }
             }
         )
-    }
-
-    /**
-     * Places recognised lines on the timeline using the audio's own silences.
-     *
-     * The recogniser splits where a speaker pauses, and [SilenceDetector] finds those same pauses
-     * by amplitude, so when the counts agree the nth line belongs to the nth run of speech. That
-     * is a real timing rather than an interpolation.
-     *
-     * When the counts disagree the pairing would be guesswork, so the lines are spread evenly
-     * across the take instead. That result is honestly approximate: fine to read as a transcript,
-     * too rough to burn in as captions.
-     */
-    private fun align(lines: List<String>, levels: PcmDecoder.Levels): List<Segment> {
-        val text = lines.filter { it.isNotBlank() }
-        if (text.isEmpty()) return emptyList()
-
-        val speech: List<Span> =
-            SilenceDetector.keepSpans(levels.db, levels.frameMs, levels.durationMs)
-        Log.i(TAG, "align lines=${text.size} speech=${speech.size} ms=${levels.durationMs}")
-
-        if (speech.size == text.size) {
-            return text.mapIndexed { index, line ->
-                Segment(speech[index].startMs, speech[index].endMs, line)
-            }
-        }
-
-        val slice = (levels.durationMs / text.size).coerceAtLeast(1)
-        return text.mapIndexed { index, line ->
-            Segment(index * slice, (index + 1) * slice, line)
-        }
     }
 
     private suspend fun recognize(

@@ -50,7 +50,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.eirmon.cutly.CleanupViewModel
+import com.eirmon.cutly.TranscriptionEngine
 import com.eirmon.cutly.TranscribeViewModel
+import com.eirmon.cutly.transcribe.SherpaModelState
 import com.eirmon.cutly.transcribe.TranscriptionLanguage
 import com.eirmon.cutly.ui.theme.Accent
 import com.eirmon.cutly.ui.theme.AccentTint
@@ -142,8 +144,8 @@ fun HomeScreen(
 
             Reveal(delayMillis = 60) {
                 Text(
-                    text = "A segmented video camera, a transcriber that runs on the phone's " +
-                        "own recogniser, and a cut that drops the dead air.",
+                    text = "A segmented video camera, offline transcription on the phone, " +
+                        "and a cut that drops the dead air.",
                     color = Muted,
                     fontFamily = TikTokSans,
                     fontWeight = FontWeight.Normal,
@@ -189,15 +191,38 @@ fun HomeScreen(
 
             Spacer(Modifier.height(10.dp))
 
+            Reveal(delayMillis = 215) {
+                OfflineModelField(
+                    state = state.sherpaModel,
+                    selected = state.engine == TranscriptionEngine.SHERPA,
+                    enabled = !state.isBusy,
+                    onDownload = viewModel::downloadSherpaModel,
+                    onCancelOrDelete = viewModel::deleteSherpaModel,
+                    onUseModel = viewModel::useSherpaModel,
+                    onUseSystem = viewModel::useSystemRecognizer
+                )
+            }
+
+            Spacer(Modifier.height(10.dp))
+
             // Directly under the card it belongs to, because the recogniser loads one model per
             // run: this is a choice that has to be made before picking the video, not after.
             Reveal(delayMillis = 220) {
-                LanguageField(
-                    languages = state.languages,
-                    selected = state.language,
-                    enabled = !busy,
-                    onClick = { languageSheetOpen = true }
-                )
+                if (state.engine == TranscriptionEngine.SHERPA) {
+                    Text(
+                        text = "Whisper detects English, Filipino, and code-switching automatically.",
+                        color = Faint,
+                        fontFamily = TikTokSans,
+                        fontSize = 12.sp
+                    )
+                } else {
+                    LanguageField(
+                        languages = state.languages,
+                        selected = state.language,
+                        enabled = !busy,
+                        onClick = { languageSheetOpen = true }
+                    )
+                }
             }
 
             Spacer(Modifier.height(14.dp))
@@ -245,8 +270,9 @@ fun HomeScreen(
 
             Reveal(delayMillis = 360) {
                 Text(
-                    text = "Transcription runs on the phone's own recogniser. Burning captions " +
-                        "into a cut is the one thing that goes online, and only when you ask.",
+                    text = "Transcription can use the phone's recogniser or Cutly's optional " +
+                        "multilingual model. Burning captions into a cut is the one thing that " +
+                        "goes online, and only when you ask.",
                     color = Faint,
                     fontFamily = TikTokSans,
                     fontSize = 12.sp,
@@ -436,6 +462,131 @@ private fun CutMark() {
                     .background(Accent)
             )
         }
+    }
+}
+
+/**
+ * Installs and selects Cutly's own recogniser without hiding its storage cost.
+ *
+ * The model is optional because roughly 99 MB is a meaningful download. Progress and deletion
+ * live beside the transcribe card, where the choice affects the very next picker action.
+ */
+@Composable
+private fun OfflineModelField(
+    state: SherpaModelState,
+    selected: Boolean,
+    enabled: Boolean,
+    onDownload: () -> Unit,
+    onCancelOrDelete: () -> Unit,
+    onUseModel: () -> Unit,
+    onUseSystem: () -> Unit
+) {
+    val detail = when (state) {
+        SherpaModelState.Missing -> "Whisper tiny · 99 MB · English + Filipino"
+        is SherpaModelState.Downloading -> {
+            val percent = if (state.totalBytes <= 0) 0
+            else (state.downloadedBytes * 100 / state.totalBytes).coerceIn(0, 100)
+            "Downloading $percent%"
+        }
+        SherpaModelState.Verifying -> "Checking the downloaded files…"
+        SherpaModelState.Ready -> if (selected) "Whisper tiny · active" else "Whisper tiny · ready"
+        is SherpaModelState.Failed -> state.message
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .border(1.dp, Hairline, RoundedCornerShape(12.dp))
+            .padding(horizontal = 14.dp, vertical = 11.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Multilingual offline model",
+                    color = Ink,
+                    fontFamily = TikTokSans,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp
+                )
+                Text(
+                    text = detail,
+                    color = if (state is SherpaModelState.Failed) Accent else Faint,
+                    fontFamily = TikTokSans,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp
+                )
+            }
+
+            Spacer(Modifier.width(10.dp))
+
+            when (state) {
+                SherpaModelState.Missing,
+                is SherpaModelState.Failed -> ModelAction("Download", enabled, onDownload)
+
+                is SherpaModelState.Downloading ->
+                    ModelAction("Cancel", enabled, onCancelOrDelete)
+
+                SherpaModelState.Verifying -> Unit
+                SherpaModelState.Ready -> Row {
+                    ModelAction(
+                        if (selected) "Use phone" else "Use model",
+                        enabled,
+                        if (selected) onUseSystem else onUseModel
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    ModelAction("Delete", enabled, onCancelOrDelete)
+                }
+            }
+        }
+
+        if (state is SherpaModelState.Downloading) {
+            val progress = if (state.totalBytes <= 0) 0f
+            else (state.downloadedBytes.toFloat() / state.totalBytes).coerceIn(0f, 1f)
+            Spacer(Modifier.height(9.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Hairline)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(progress)
+                        .height(3.dp)
+                        .background(Accent)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModelAction(label: String, enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .heightIn(min = 48.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                enabled = enabled,
+                onClick = onClick
+            )
+            .padding(horizontal = 2.dp)
+    ) {
+        Text(
+            text = label,
+            color = if (enabled) Accent else Faint,
+            fontFamily = TikTokSans,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 12.sp
+        )
     }
 }
 
