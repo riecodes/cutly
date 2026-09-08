@@ -14,7 +14,7 @@ import com.eirmon.cutly.export.MediaSaver
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.transformer.Composition
 import androidx.annotation.OptIn
-import com.eirmon.cutly.transcribe.GeminiTranscriber
+import com.eirmon.cutly.transcribe.CloudTranscriberFactory
 import com.eirmon.cutly.transcribe.Segment
 import com.eirmon.cutly.transcribe.Transcriber
 import kotlinx.coroutines.Dispatchers
@@ -91,7 +91,10 @@ class CleanupViewModel(application: Application) : AndroidViewModel(application)
     )
 
     private val exporter = ClipExporter(application)
-    private val transcriber: Transcriber = GeminiTranscriber(BuildConfig.GEMINI_API_KEY)
+    private val transcriber: Transcriber? = CloudTranscriberFactory.create(
+        BuildConfig.OPENAI_API_KEY,
+        BuildConfig.GEMINI_API_KEY
+    )
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -227,9 +230,12 @@ class CleanupViewModel(application: Application) : AndroidViewModel(application)
         val source = analysis?.source ?: return
         if (current.isBusy || review.captions != null || review.savedName != null) return
 
-        if (BuildConfig.GEMINI_API_KEY.isEmpty()) {
+        if (transcriber == null) {
             _state.update {
-                it.copy(error = "No Gemini API key set. Add gemini.api.key to local.properties.")
+                it.copy(
+                    error = "No cloud API key set. Add openai.api.key or gemini.api.key " +
+                        "to local.properties."
+                )
             }
             return
         }

@@ -25,8 +25,8 @@ Three services on Android, behind one hub screen:
 | Capture | CameraX (`camera-video`, `camera-compose`) |
 | Export / concat | Media3 Transformer + Presentation effect |
 | Delivery | MediaStore, `Movies/Cutly` |
-| Transcription | On-device `SpeechRecognizer`, audio only |
-| Captions | Gemini API (`gemini-3.7-flash`), audio only |
+| Transcription | Android `SpeechRecognizer` or sherpa-onnx Whisper, audio only |
+| Cloud transcript / captions | OpenAI `whisper-1` or Gemini, audio only |
 | Silence detection | `MediaExtractor` + `MediaCodec`, RMS per 20 ms window |
 | Captions | Media3 `CanvasOverlay` on the composition |
 | Build | AGP 9 (built-in Kotlin), Gradle 9.7 |
@@ -80,48 +80,45 @@ That single choice is what makes discard, per-clip export, and mid-take lens swi
   restored on launch. Android kills backgrounded camera apps aggressively.
 - **Rotation** — the activity is locked to portrait, so an `OrientationEventListener` feeds
   `videoCapture.targetRotation` manually. Without it, clips shot sideways save sideways.
-- **Mixed lenses** — both lenses are pinned to one `QualitySelector`, and every export item gets a
-  `Presentation` effect, so front/back resolution differences do not break the merge.
+- **Mixed lenses** — merge chooses the tallest captured clip and adds a `Presentation` effect only
+  to clips that need scaling, so front/back resolution differences do not break the sequence.
 
 ## Transcription
 
-Two entry points, one path. From the hub, **Transcribe a video** opens the system photo picker and
-transcribes whatever is chosen. From the camera, the export sheet has a third action, **Transcribe
-to text**, which does the same for the take.
+From the hub, **Transcribe a video** stays offline. It can use Android's own on-device recogniser
+with a language installed by the system, or an optional multilingual Whisper tiny INT8 model run
+through sherpa-onnx. The model is a roughly 99 MB opt-in download, resumes through Android's
+DownloadManager after process death, is SHA-256 verified before use, and can be deleted from the
+same control. It is not bundled in the APK.
 
-Both strip the video track, concatenate the audio into one M4A with the same Transformer already
-used for export, post it to the Gemini API as inline base64, and show the transcript in an editable
-sheet with a copy button. Nothing is written to disk; the temp M4A is deleted whether the request
-succeeds or fails. A picked video never becomes a `Clip`, so it never touches the take or the clip
-store.
-
-Gemini rather than a dedicated speech-to-text API because the target languages are English (United
-States) and Tagalog/Filipino, and real Filipino speech switches between them inside a single
-sentence. APIs that lock one language per utterance mangle that; a general model transcribes the
-mix as spoken. The prompt asks for `[MM:SS]` line prefixes and forbids translation.
+The camera's **Transcribe to text** action and the cut sheet's **Add captions** action use a
+configured cloud backend. OpenAI is selected when `openai.api.key` exists and returns native
+`whisper-1` segment timestamps; otherwise the existing Gemini structured-timing path is used. All
+paths strip the video track into a temporary M4A and delete it when the attempt finishes.
 
 The speed effect is deliberately not applied to the transcription audio — a 3x take is
 unintelligible to a speech model, and the transcript is of what was said.
 
 ### Setup
 
-Put a personal key in `local.properties`, which is untracked:
+Cloud transcription is optional. Put either personal key in `local.properties`, which is
+untracked; OpenAI takes precedence when both are present:
 
 ```properties
+openai.api.key=<OpenAI API key>
 gemini.api.key=<key from https://aistudio.google.com/apikey>
 ```
 
-It reaches the app as `BuildConfig.GEMINI_API_KEY`. A missing key is not a build failure — the app
-says `Set gemini.api.key in local.properties` when transcription is used. This is a personal-use
-arrangement: the key ships inside the APK, so the debug build must not be handed to anyone else.
+They reach the app as BuildConfig fields. Missing keys are not a build failure; cloud-only actions
+explain what to add when used. This is a personal-use arrangement: either key ships inside the APK,
+so a keyed build must not be handed to anyone else.
 
 ### Known ceilings
 
 - Tagalog word error rate runs well above English on every current speech model, and proper nouns
   come back wrong often. That is why the transcript sheet is an editable text field, not a label.
-- The request is inline base64, capped by Gemini at 20 MB total. A ten-minute take at the camera's
-  AAC bitrate lands near 10 MB, so it fits, but the transcriber refuses anything larger up front
-  rather than posting it to earn a 400.
+- Gemini requests are inline base64 and capped at 20 MB total. The OpenAI path streams multipart
+  audio from disk instead of buffering the extracted take in memory.
 - Gemini answers a refusal and a truncation with HTTP 200 and no text, so `parseTranscript` turns
   every empty-text shape into an error — otherwise a blocked take would look like silence.
 
@@ -170,8 +167,9 @@ rather than needing a device.
 
 `ClipExporter.exportCut` gives every kept span its own `EditedMediaItem` with a
 `ClippingConfiguration` over the same source URI, and lets the sequence concatenate them — the same
-machinery `merge` uses for the clip list, pointed at one file. Cuts are frame-accurate because the
-`Presentation` effect forces a re-encode anyway; a transmux could only start on a key frame.
+machinery `merge` uses for the clip list, pointed at one file. Cuts stay in Composition's default
+transcode mode for frame accuracy; a transmux could only start on a key frame. Source resolution
+and bitrate are retained, and identity `Presentation` scaling is skipped.
 
 ### Captions
 

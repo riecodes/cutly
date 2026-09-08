@@ -16,7 +16,7 @@ import com.eirmon.cutly.export.MediaSaver
 import com.eirmon.cutly.model.Clip
 import com.eirmon.cutly.model.VideoFormat
 import com.eirmon.cutly.record.ClipRecorder
-import com.eirmon.cutly.transcribe.GeminiTranscriber
+import com.eirmon.cutly.transcribe.CloudTranscriberFactory
 import com.eirmon.cutly.transcribe.Segment
 import com.eirmon.cutly.transcribe.Transcriber
 import kotlinx.coroutines.Dispatchers
@@ -69,7 +69,10 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     private val store = ClipStore(application)
     private val recorder = ClipRecorder(application)
     private val exporter = ClipExporter(application)
-    private val transcriber: Transcriber = GeminiTranscriber(BuildConfig.GEMINI_API_KEY)
+    private val transcriber: Transcriber? = CloudTranscriberFactory.create(
+        BuildConfig.OPENAI_API_KEY,
+        BuildConfig.GEMINI_API_KEY
+    )
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -410,8 +413,10 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     fun transcribe() {
         val clips = _state.value.clips
         if (clips.isEmpty() || _state.value.isExporting || _state.value.isRecording) return
-        if (BuildConfig.GEMINI_API_KEY.isEmpty()) {
-            _state.update { it.copy(status = "Set gemini.api.key in local.properties") }
+        if (transcriber == null) {
+            _state.update {
+                it.copy(status = "Set openai.api.key or gemini.api.key in local.properties")
+            }
             return
         }
 

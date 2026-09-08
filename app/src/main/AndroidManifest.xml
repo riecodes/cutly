@@ -3,7 +3,7 @@
 
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <!-- Transcription posts the take's audio to the Gemini API. -->
+    <!-- Camera transcripts and cut captions can post audio to the configured cloud API. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
     <uses-feature android:name="android.hardware.camera.any" android:required="true" />

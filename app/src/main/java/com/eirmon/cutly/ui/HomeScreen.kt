@@ -270,9 +270,8 @@ fun HomeScreen(
 
             Reveal(delayMillis = 360) {
                 Text(
-                    text = "Transcription can use the phone's recogniser or Cutly's optional " +
-                        "multilingual model. Burning captions into a cut is the one thing that " +
-                        "goes online, and only when you ask.",
+                    text = "This transcriber stays offline. Camera transcripts and burned-in " +
+                        "captions use the cloud only when you explicitly ask for them.",
                     color = Faint,
                     fontFamily = TikTokSans,
                     fontSize = 12.sp,

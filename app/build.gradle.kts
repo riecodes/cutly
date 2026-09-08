@@ -6,13 +6,15 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-// The Gemini key is a personal credential, so it lives in local.properties (untracked) rather
-// than in the build file. A missing key is not a build failure — the app just reports it when
+// API keys are personal credentials, so they live in local.properties (untracked) rather than in
+// the build file. Missing keys are not a build failure — the app reports them only when cloud
 // transcription is used.
-val geminiApiKey: String = Properties().apply {
+val localProperties = Properties().apply {
     val file = rootProject.file("local.properties")
     if (file.exists()) file.inputStream().use { load(it) }
-}.getProperty("gemini.api.key").orEmpty()
+}
+val geminiApiKey: String = localProperties.getProperty("gemini.api.key").orEmpty()
+val openAiApiKey: String = localProperties.getProperty("openai.api.key").orEmpty()
 
 android {
     namespace = "com.eirmon.cutly"
@@ -32,6 +34,7 @@ android {
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
 
         buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
+        buildConfigField("String", "OPENAI_API_KEY", "\"$openAiApiKey\"")
     }
 
     buildTypes {
