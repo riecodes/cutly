@@ -30,6 +30,24 @@ class SherpaSegmentsTest {
         assertTrue(segments.isEmpty())
     }
 
+    /**
+     * The shape SherpaTranscriber hands over once a take is longer than Whisper's 30 second
+     * context: each window's own timestamps, already shifted onto the take's clock.
+     */
+    @Test
+    fun keepsSecondWindowTokensOnTheTakeClock() {
+        val segments = SherpaSegments.fromTokens(
+            tokens = arrayOf(" First", " window", ".", " Second", " window", "."),
+            timestamps = floatArrayOf(1.0f, 1.4f, 1.8f, 28.5f, 29.1f, 29.6f),
+            durationMs = 56_000
+        )
+
+        assertEquals(listOf("First window.", "Second window."), segments.map { it.text })
+        assertEquals(28_500, segments.last().startMs)
+        assertTrue(segments.last().endMs > 28_500)
+        assertTrue(segments.first().endMs <= segments.last().startMs)
+    }
+
     @Test
     fun mismatchedTokenAndTimestampArraysRequestFallback() {
         val segments = SherpaSegments.fromTokens(
