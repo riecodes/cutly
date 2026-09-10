@@ -12,4 +12,8 @@ internal object CloudTranscriberFactory {
         geminiApiKey.isNotBlank() -> GeminiTranscriber(geminiApiKey)
         else -> null
     }
+
+    /** The video-to-text screen exposes Gemini explicitly instead of applying cloud precedence. */
+    fun createGemini(geminiApiKey: String): Transcriber? =
+        geminiApiKey.takeIf(String::isNotBlank)?.let(::GeminiTranscriber)
 }

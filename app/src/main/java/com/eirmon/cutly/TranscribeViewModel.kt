@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.eirmon.cutly.export.ClipExporter
+import com.eirmon.cutly.transcribe.CloudTranscriberFactory
 import com.eirmon.cutly.transcribe.OnDeviceTranscriber
 import com.eirmon.cutly.transcribe.Segment
 import com.eirmon.cutly.transcribe.SherpaModelManager
@@ -19,7 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-enum class TranscriptionEngine { SYSTEM, SHERPA }
+enum class TranscriptionEngine { SYSTEM, SHERPA, GEMINI }
 
 /**
  * The upload service: one video off the device, one transcript back.
@@ -49,18 +50,22 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
          * whichever half it is mostly in.
          */
         val language: TranscriptionLanguage? = null,
-        /** Which offline recogniser handles the next picked video. */
+        /** Which recogniser handles the next picked video. */
         val engine: TranscriptionEngine = TranscriptionEngine.SYSTEM,
         /** Download/install state for the optional multilingual Whisper model. */
-        val sherpaModel: SherpaModelState = SherpaModelState.Missing
+        val sherpaModel: SherpaModelState = SherpaModelState.Missing,
+        /** Whether this build has the local Gemini credential needed for the cloud option. */
+        val geminiConfigured: Boolean = false
     )
 
     private val exporter = ClipExporter(application)
     private val sherpa = SherpaModelManager(application)
+    private val gemini = CloudTranscriberFactory.createGemini(BuildConfig.GEMINI_API_KEY)
     private val _state = MutableStateFlow(
         UiState(
             engine = if (sherpa.isSelected()) TranscriptionEngine.SHERPA
-            else TranscriptionEngine.SYSTEM
+            else TranscriptionEngine.SYSTEM,
+            geminiConfigured = gemini != null
         )
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -159,13 +164,25 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
     fun useSherpaModel() {
         if (_state.value.isBusy || _state.value.sherpaModel !is SherpaModelState.Ready) return
         sherpa.select(true)
-        _state.update { it.copy(engine = TranscriptionEngine.SHERPA) }
+        _state.update { it.copy(engine = TranscriptionEngine.SHERPA, error = null) }
     }
 
     fun useSystemRecognizer() {
         if (_state.value.isBusy) return
         sherpa.select(false)
-        _state.update { it.copy(engine = TranscriptionEngine.SYSTEM) }
+        _state.update { it.copy(engine = TranscriptionEngine.SYSTEM, error = null) }
+    }
+
+    fun useGemini() {
+        if (_state.value.isBusy) return
+        if (gemini == null) {
+            _state.update {
+                it.copy(error = "No Gemini API key set. Add gemini.api.key to local.properties.")
+            }
+            return
+        }
+        sherpa.select(false)
+        _state.update { it.copy(engine = TranscriptionEngine.GEMINI, error = null) }
     }
 
     fun transcribe(video: Uri) {
@@ -191,14 +208,18 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
                             ?: error("The offline Whisper model is not installed")
                         SherpaTranscriber(getApplication(), files)
                     }
+                    TranscriptionEngine.GEMINI ->
+                        gemini ?: error(
+                            "No Gemini API key set. Add gemini.api.key to local.properties."
+                        )
                 }
                 val audio = exporter.extractAudio(video)
                 _state.update {
                     it.copy(
-                        status = if (current.engine == TranscriptionEngine.SHERPA) {
-                            "Transcribing with offline Whisper…"
-                        } else {
-                            "Transcribing on device…"
+                        status = when (current.engine) {
+                            TranscriptionEngine.SYSTEM -> "Transcribing on device…"
+                            TranscriptionEngine.SHERPA -> "Transcribing with offline Whisper…"
+                            TranscriptionEngine.GEMINI -> "Transcribing with Gemini…"
                         }
                     )
                 }

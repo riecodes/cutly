@@ -7,16 +7,22 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,11 +34,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.Player
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.util.Size
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.CompositionPlayer
 import com.eirmon.cutly.ui.theme.TikTokSans
+import kotlinx.coroutines.delay
+
+internal data class PreviewSeek(val positionMs: Long, val id: Int)
 
 /**
  * Plays the cut before it is encoded.
@@ -46,15 +56,32 @@ import com.eirmon.cutly.ui.theme.TikTokSans
  */
 @OptIn(UnstableApi::class)
 @Composable
-internal fun CutPreview(composition: Composition?, modifier: Modifier = Modifier) {
+internal fun CutPreview(
+    composition: Composition?,
+    seek: PreviewSeek?,
+    scrubbing: Boolean,
+    onPositionChanged: (Long) -> Unit,
+    modifier: Modifier = Modifier
+) {
     val context = LocalContext.current
     val player = remember { CompositionPlayer.Builder(context).build() }
     var playing by remember { mutableStateOf(false) }
+    var playbackState by remember { mutableIntStateOf(Player.STATE_IDLE) }
+    var previewError by remember { mutableStateOf<String?>(null) }
+    val currentPositionCallback by rememberUpdatedState(onPositionChanged)
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 playing = isPlaying
+            }
+
+            override fun onPlaybackStateChanged(state: Int) {
+                playbackState = state
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                previewError = error.message ?: "Preview unavailable"
             }
         }
         player.addListener(listener)
@@ -67,12 +94,56 @@ internal fun CutPreview(composition: Composition?, modifier: Modifier = Modifier
     // Reloading whenever the composition object changes is what makes the preview follow the
     // sliders. Keyed on the object, so a moved slider reloads and a bare recomposition does not.
     LaunchedEffect(composition) {
-        player.pause()
+        player.stop()
+        playbackState = Player.STATE_IDLE
+        previewError = null
         if (composition != null) {
-            player.setComposition(composition)
-            player.prepare()
+            try {
+                player.setComposition(composition)
+                player.prepare()
+            } catch (error: RuntimeException) {
+                previewError = error.message ?: "Preview unavailable"
+            }
         }
     }
+
+    // CompositionPlayer deliberately debounces frequent seeks. Its scrubbing mode keeps the
+    // latest slider position and renders that final frame as soon as the gesture ends.
+    LaunchedEffect(scrubbing) {
+        player.setScrubbingModeEnabled(scrubbing)
+    }
+
+    LaunchedEffect(seek, composition) {
+        if (seek != null) {
+            // A request can arrive while a new composition is still preparing. Wait for that one
+            // request to become seekable; keying this effect on playbackState would resend the
+            // same seek after every BUFFERING -> READY transition and prevent playback forever.
+            while (playbackState != Player.STATE_READY &&
+                playbackState != Player.STATE_ENDED &&
+                previewError == null
+            ) {
+                delay(SEEK_READY_POLL_MS)
+            }
+        }
+        if (seek != null && previewError == null) {
+            player.pause()
+            if (kotlin.math.abs(player.currentPosition - seek.positionMs) > SEEK_TOLERANCE_MS) {
+                player.seekTo(seek.positionMs)
+            }
+            currentPositionCallback(seek.positionMs)
+        }
+    }
+
+    LaunchedEffect(player) {
+        while (true) {
+            currentPositionCallback(player.currentPosition)
+            delay(POSITION_POLL_MS)
+        }
+    }
+
+    val ready =
+        (playbackState == Player.STATE_READY || playbackState == Player.STATE_ENDED) &&
+        previewError == null
 
     Box(
         modifier = modifier
@@ -85,13 +156,11 @@ internal fun CutPreview(composition: Composition?, modifier: Modifier = Modifier
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
             ) {
-                if (composition == null) return@clickable
+                if (composition == null || !ready) return@clickable
                 if (playing) {
                     player.pause()
                 } else {
-                    // Restart from the top once it has run to the end, so a second tap replays
-                    // instead of sitting on the last frame doing nothing.
-                    if (player.playbackState == Player.STATE_ENDED) player.seekTo(0)
+                    if (playbackState == Player.STATE_ENDED) player.seekTo(0L)
                     player.play()
                 }
             },
@@ -116,24 +185,70 @@ internal fun CutPreview(composition: Composition?, modifier: Modifier = Modifier
                         }
 
                         override fun surfaceDestroyed(holder: SurfaceHolder) {
-                            // setVideoSurface takes a non-null Surface, so detaching goes through
-                            // Player.clearVideoSurface(). Rendering into a destroyed surface is a
-                            // crash, not a no-op, so this cannot simply be skipped.
+                            // CompositionPlayer checks that the surface being cleared is the same
+                            // object that was attached. The no-argument overload clears `null` and
+                            // fails that check, leaving the next preview without a usable surface.
                             player.pause()
-                            player.clearVideoSurface()
+                            player.clearVideoSurface(holder.surface)
                         }
                     })
                 }
             }
         )
 
-        if (!playing) {
-            Text(
-                text = if (composition == null) "Nothing to play" else "▶",
+        when {
+            previewError != null -> Text(
+                text = "Preview unavailable",
+                color = Color.White,
+                fontFamily = TikTokSans,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 12.sp
+            )
+            composition == null -> Text(
+                text = "Nothing to play",
+                color = Color.White,
+                fontFamily = TikTokSans,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 12.sp
+            )
+            !ready -> CircularProgressIndicator(
+                color = Color.White,
+                strokeWidth = 3.dp
+            )
+            !playing -> Text(
+                text = "▶",
                 color = Color.White,
                 fontFamily = TikTokSans,
                 fontWeight = FontWeight.Bold,
-                fontSize = if (composition == null) 12.sp else 34.sp
+                fontSize = 34.sp
+            )
+        }
+    }
+}
+
+private const val POSITION_POLL_MS = 50L
+private const val SEEK_READY_POLL_MS = 20L
+private const val SEEK_TOLERANCE_MS = 25L
+
+/** Replaces the player while editing or exporting, so no decoder competes for codec memory. */
+@Composable
+internal fun CutPreviewLoading(message: String, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .aspectRatio(9f / 16f)
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color.Black),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            CircularProgressIndicator(color = Color.White, strokeWidth = 3.dp)
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = message,
+                color = Color.White,
+                fontFamily = TikTokSans,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 12.sp
             )
         }
     }

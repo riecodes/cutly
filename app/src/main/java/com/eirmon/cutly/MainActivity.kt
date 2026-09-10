@@ -32,8 +32,7 @@ class MainActivity : ComponentActivity() {
                 var service by rememberSaveable { mutableStateOf(Service.Home) }
                 val view = LocalView.current
 
-                // The hub is a light page and the camera is a black one, so the system bar icons
-                // have to flip with the destination or they vanish into whatever is behind them.
+                // The camera is black and the home surface is always light.
                 LaunchedEffect(service) {
                     val light = service == Service.Home
                     WindowCompat.getInsetsController(window, view).apply {

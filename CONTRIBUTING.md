@@ -32,11 +32,14 @@ cd cutly
 Open the project in Android Studio once and let it write `local.properties` with your `sdk.dir`.
 That file is gitignored and must stay that way.
 
-Transcription and captions need a Gemini API key. Everything else works without one.
+Phone and downloaded-Whisper transcription need no key. The optional Gemini video-to-text choice,
+camera transcription, and captions use a configured cloud key; camera transcription and captions
+can also use OpenAI.
 
 ```properties
 # local.properties  (gitignored, never commit this)
 gemini.api.key=<key from https://aistudio.google.com/apikey>
+openai.api.key=<OpenAI API key>
 ```
 
 A missing key is not a build failure; the app says so when you use a feature that needs it. The key

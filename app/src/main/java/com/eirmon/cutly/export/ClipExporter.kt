@@ -113,7 +113,14 @@ class ClipExporter(private val context: Context) {
         val info = sourceInfo ?: withContext(Dispatchers.IO) { ClipProbe.probe(context, source) }
         val quality = ExportQuality.single(ExportQuality.Source(info?.height, info?.bitrate))
         return runTransformer(
-            cutComposition(source, keep, captions, info?.height, quality.height),
+            cutComposition(
+                source = source,
+                keep = keep,
+                captions = captions,
+                sourceHeight = info?.height,
+                outputHeight = quality.height,
+                sourceDurationUs = info?.durationUs
+            ),
             output,
             quality.bitrate
         )
@@ -131,9 +138,10 @@ class ClipExporter(private val context: Context) {
         keep: List<Span>,
         captions: List<Segment> = emptyList(),
         sourceHeight: Int? = null,
-        outputHeight: Int? = sourceHeight
+        outputHeight: Int? = sourceHeight,
+        sourceDurationUs: Long? = null
     ): Composition {
-        require(keep.isNotEmpty()) { "Nothing left to keep" }
+        val declaredDurationUs = CutTimeline.sourceDurationUs(keep, sourceDurationUs)
 
         val items = keep.map { span ->
             EditedMediaItem.Builder(
@@ -150,10 +158,10 @@ class ClipExporter(private val context: Context) {
                 .setEffects(
                     Effects(emptyList(), resizeEffects(sourceHeight, outputHeight))
                 )
-                // Required by CompositionPlayer, which computes the sequence duration up front and
-                // throws without it. Transformer discovers the duration itself, so the export
-                // worked without this and only the preview crashed.
-                .setDurationUs(span.durationMs * 1000)
+                // CompositionPlayer computes the clipped duration up front. Media3 expects the
+                // original source duration here; giving it span.durationMs makes every later clip
+                // fail because its absolute end position is past that falsely shortened source.
+                .setDurationUs(declaredDurationUs)
                 .build()
         }
 

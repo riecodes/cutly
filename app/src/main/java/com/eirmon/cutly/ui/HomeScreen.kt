@@ -4,13 +4,13 @@ import android.animation.ValueAnimator
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.OptIn
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,11 +27,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,7 +43,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
@@ -49,33 +50,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.media3.common.util.UnstableApi
 import com.eirmon.cutly.CleanupViewModel
-import com.eirmon.cutly.TranscriptionEngine
 import com.eirmon.cutly.TranscribeViewModel
+import com.eirmon.cutly.TranscriptionEngine
 import com.eirmon.cutly.transcribe.SherpaModelState
 import com.eirmon.cutly.transcribe.TranscriptionLanguage
-import com.eirmon.cutly.ui.theme.Accent
-import com.eirmon.cutly.ui.theme.AccentTint
-import com.eirmon.cutly.ui.theme.Canvas
 import com.eirmon.cutly.ui.theme.EaseOut
-import com.eirmon.cutly.ui.theme.Faint
-import com.eirmon.cutly.ui.theme.Hairline
-import com.eirmon.cutly.ui.theme.Ink
-import com.eirmon.cutly.ui.theme.Muted
-import com.eirmon.cutly.ui.theme.Panel
 import com.eirmon.cutly.ui.theme.Scrim
 import com.eirmon.cutly.ui.theme.TikTokSans
 import kotlinx.coroutines.delay
 
 /**
- * The hub. Cutly is three services now — a camera, a transcriber and a cut — so the first screen
- * is a chooser rather than a viewfinder.
- *
- * Deliberately the opposite surface from the rest of the app: warm off-white canvas, one oversized
- * display headline, and white cards floating on hairline borders. The camera is a dark tool; the
- * launcher is a light page, and the size jump between the headline and everything else is the only
- * hierarchy it needs.
+ * One compact launcher for Cutly's three jobs.
  */
+@OptIn(UnstableApi::class)
 @Composable
 fun HomeScreen(
     onOpenCamera: () -> Unit,
@@ -84,14 +73,13 @@ fun HomeScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val cleanup by cleanupViewModel.state.collectAsStateWithLifecycle()
+    val colors = homeColors()
 
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
     ) { picked -> picked?.let(viewModel::transcribe) }
 
-    // A second launcher rather than one shared behind a mode flag: the picker result arrives with
-    // no memory of which card opened it, so a flag would be one stale boolean away from handing a
-    // video to the wrong service.
+    // Separate launchers retain their intent while Android's picker is outside this process.
     val cutPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
     ) { picked -> picked?.let(cleanupViewModel::analyze) }
@@ -102,7 +90,7 @@ fun HomeScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Canvas)
+            .background(colors.background)
     ) {
         Column(
             modifier = Modifier
@@ -111,182 +99,138 @@ fun HomeScreen(
                 .windowInsetsPadding(WindowInsets.safeDrawing)
                 .padding(horizontal = 20.dp)
         ) {
-            Spacer(Modifier.height(28.dp))
-
-            Reveal(delayMillis = 0) {
-                Text(
-                    text = "Cutly",
-                    color = Ink,
-                    fontFamily = TikTokSans,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 15.sp,
-                    letterSpacing = (-0.2).sp
-                )
-            }
-
-            Spacer(Modifier.height(56.dp))
-
-            // One headline, two lines, ending in a period. Everything under it is small and quiet.
-            Reveal(delayMillis = 60) {
-                Text(
-                    text = "Record it.\nRead it. Cut it.",
-                    color = Ink,
-                    fontFamily = TikTokSans,
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 52.sp,
-                    // Tracking tightens as the type grows; at 52sp that is about −4.5%.
-                    letterSpacing = (-2.3).sp,
-                    lineHeight = 48.sp
-                )
-            }
-
             Spacer(Modifier.height(18.dp))
 
-            Reveal(delayMillis = 60) {
-                Text(
-                    text = "A segmented video camera, offline transcription on the phone, " +
-                        "and a cut that drops the dead air.",
-                    color = Muted,
-                    fontFamily = TikTokSans,
-                    fontWeight = FontWeight.Normal,
-                    fontSize = 17.sp,
-                    lineHeight = 25.sp,
-                    letterSpacing = (-0.4).sp
-                )
-            }
-
-            Spacer(Modifier.height(36.dp))
-
-            Reveal(delayMillis = 140) {
-                ServiceCard(
-                    label = "Camera",
-                    title = "Shoot a take.",
-                    body = "Record it as separate clips. Pause between them, discard the last " +
-                        "one, double-tap to flip, export each clip or the whole take.",
-                    enabled = !busy,
-                    onClick = onOpenCamera,
-                    mark = { RecordMark() }
-                )
-            }
-
-            Spacer(Modifier.height(14.dp))
-
-            Reveal(delayMillis = 200) {
-                ServiceCard(
-                    label = "Video to text",
-                    title = "Transcribe a video.",
-                    body = "Pick any video on the phone. The transcript comes back as " +
-                        "editable text, timestamped, in whichever language you choose below.",
-                    enabled = !busy,
-                    onClick = {
-                        picker.launch(
-                            PickVisualMediaRequest(
-                                ActivityResultContracts.PickVisualMedia.VideoOnly
-                            )
-                        )
-                    },
-                    mark = { TextMark() }
-                )
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            Reveal(delayMillis = 215) {
-                OfflineModelField(
-                    state = state.sherpaModel,
-                    selected = state.engine == TranscriptionEngine.SHERPA,
-                    enabled = !state.isBusy,
-                    onDownload = viewModel::downloadSherpaModel,
-                    onCancelOrDelete = viewModel::deleteSherpaModel,
-                    onUseModel = viewModel::useSherpaModel,
-                    onUseSystem = viewModel::useSystemRecognizer
-                )
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            // Directly under the card it belongs to, because the recogniser loads one model per
-            // run: this is a choice that has to be made before picking the video, not after.
-            Reveal(delayMillis = 220) {
-                if (state.engine == TranscriptionEngine.SHERPA) {
-                    Text(
-                        text = "Whisper detects English, Filipino, and code-switching automatically.",
-                        color = Faint,
-                        fontFamily = TikTokSans,
-                        fontSize = 12.sp
-                    )
-                } else {
-                    LanguageField(
-                        languages = state.languages,
-                        selected = state.language,
-                        enabled = !busy,
-                        onClick = { languageSheetOpen = true }
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(14.dp))
-
-            Reveal(delayMillis = 240) {
-                ServiceCard(
-                    label = "Cut",
-                    title = "Take out the pauses.",
-                    body = "Pick a video and Cutly finds the dead air by how quiet it is, not " +
-                        "by what was said. Nothing is uploaded, and nothing is cut until you " +
-                        "like the numbers.",
-                    enabled = !busy,
-                    onClick = {
-                        cutPicker.launch(
-                            PickVisualMediaRequest(
-                                ActivityResultContracts.PickVisualMedia.VideoOnly
-                            )
-                        )
-                    },
-                    mark = { CutMark() }
-                )
-            }
-
-            state.error?.let { message ->
-                Spacer(Modifier.height(14.dp))
-                ErrorBanner(message = message, onDismiss = viewModel::dismissError)
-            }
-
-            cleanup.error?.takeIf { cleanup.review == null }?.let { message ->
-                Spacer(Modifier.height(14.dp))
-                ErrorBanner(message = message, onDismiss = cleanupViewModel::dismissError)
-            }
+            Reveal(0) { HomeHeader(colors) }
 
             Spacer(Modifier.height(24.dp))
 
-            // The honest chips: what it does not do, stated before you tap anything.
-            Reveal(delayMillis = 300) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Chip("No account")
-                    Chip("Runs offline")
+            Reveal(70) {
+                HomeSection(
+                    number = "01",
+                    label = "camera",
+                    colors = colors
+                ) {
+                    ToolRow(
+                        title = "Shoot a take",
+                        detail = "Record in clips. Merge when ready.",
+                        action = "OPEN ↗",
+                        enabled = !busy,
+                        colors = colors,
+                        onClick = onOpenCamera
+                    )
                 }
             }
 
-            Spacer(Modifier.height(40.dp))
+            Spacer(Modifier.height(14.dp))
 
-            Reveal(delayMillis = 360) {
-                Text(
-                    text = "This transcriber stays offline. Camera transcripts and burned-in " +
-                        "captions use the cloud only when you explicitly ask for them.",
-                    color = Faint,
-                    fontFamily = TikTokSans,
-                    fontSize = 12.sp,
-                    lineHeight = 18.sp
-                )
+            Reveal(140) {
+                HomeSection(
+                    number = "02",
+                    label = "transcribe",
+                    colors = colors
+                ) {
+                    ToolRow(
+                        title = "Video to text",
+                        detail = "Editable, timestamped transcript.",
+                        action = "CHOOSE ↗",
+                        enabled = !busy,
+                        colors = colors,
+                        onClick = {
+                            picker.launch(
+                                PickVisualMediaRequest(
+                                    ActivityResultContracts.PickVisualMedia.VideoOnly
+                                )
+                            )
+                        }
+                    )
+
+                    Spacer(Modifier.height(12.dp))
+
+                    TranscriptionPanel(
+                        engine = state.engine,
+                        languages = state.languages,
+                        language = state.language,
+                        sherpaModel = state.sherpaModel,
+                        geminiConfigured = state.geminiConfigured,
+                        enabled = !busy,
+                        colors = colors,
+                        onLanguage = { languageSheetOpen = true },
+                        onPhone = viewModel::useSystemRecognizer,
+                        onWhisper = viewModel::useSherpaModel,
+                        onDownload = viewModel::downloadSherpaModel,
+                        onCancelOrDelete = viewModel::deleteSherpaModel,
+                        onGemini = viewModel::useGemini
+                    )
+                }
             }
 
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(14.dp))
+
+            Reveal(210) {
+                HomeSection(
+                    number = "03",
+                    label = "cut",
+                    colors = colors
+                ) {
+                    if (cleanup.hasProject) {
+                        ToolRow(
+                            title = "Resume project",
+                            detail = "Your source, clips, and transcript are saved.",
+                            action = "RESUME ↗",
+                            enabled = !busy,
+                            colors = colors,
+                            onClick = cleanupViewModel::openProject
+                        )
+                        Spacer(Modifier.height(12.dp))
+                    }
+                    ToolRow(
+                        title = if (cleanup.hasProject) "New video" else "Edit a video",
+                        detail = "Timeline, clips, captions, and export.",
+                        action = if (cleanup.hasProject) "NEW ↗" else "CHOOSE ↗",
+                        enabled = !busy,
+                        colors = colors,
+                        onClick = {
+                            cutPicker.launch(
+                                PickVisualMediaRequest(
+                                    ActivityResultContracts.PickVisualMedia.VideoOnly
+                                )
+                            )
+                        }
+                    )
+                }
+            }
+
+            state.error?.let { message ->
+                Spacer(Modifier.height(18.dp))
+                ErrorBanner(message, colors, viewModel::dismissError)
+            }
+
+            cleanup.error?.takeIf { cleanup.review == null }?.let { message ->
+                Spacer(Modifier.height(18.dp))
+                ErrorBanner(message, colors, cleanupViewModel::dismissError)
+            }
+
+            Spacer(Modifier.height(28.dp))
+
+            Text(
+                text = "Private by default · Cloud only when selected",
+                color = colors.faint,
+                fontFamily = TikTokSans,
+                fontSize = 12.sp
+            )
+
+            Spacer(Modifier.height(28.dp))
         }
 
-        // Not while the review sheet is up: that is a separate window on top of this one, so an
-        // overlay drawn here would be invisible and would only look like the app had frozen.
+        // The cut dialog owns its own progress surface, so the page overlay stays behind it.
         if (busy && cleanup.review == null) {
-            BusyOverlay(status = state.status ?: cleanup.status)
+            BusyOverlay(state.status ?: cleanup.status)
         }
+    }
+
+    if (cleanup.isBusy && cleanup.review == null) {
+        ProjectOpening(cleanup.status)
     }
 
     if (languageSheetOpen) {
@@ -302,9 +246,8 @@ fun HomeScreen(
     }
 
     cleanup.review?.let { review ->
-        // Rebuilt only when the kept spans or the captions actually change, so dragging a slider
-        // reloads the player once it settles rather than on every pixel of the drag.
-        val preview = remember(review.keep, review.captions) {
+        // Slider drafts commit only on release, so this rebuilds once per edit.
+        val preview = remember(review.keep, review.captions, review.captionsEnabled) {
             cleanupViewModel.previewComposition()
         }
 
@@ -314,7 +257,11 @@ fun HomeScreen(
             error = cleanup.error,
             preview = preview,
             onSettingsChange = cleanupViewModel::updateSettings,
+            onClipChange = cleanupViewModel::updateClip,
+            onRemoveClip = cleanupViewModel::removeClip,
             onAddCaptions = cleanupViewModel::addCaptions,
+            onCaptionsEnabled = cleanupViewModel::setCaptionsEnabled,
+            onTranscribe = cleanupViewModel::transcribe,
             onSave = cleanupViewModel::save,
             onDismiss = cleanupViewModel::closeReview
         )
@@ -329,395 +276,490 @@ fun HomeScreen(
     }
 }
 
-/**
- * One service. White panel on the canvas, hairline border, wide soft shadow, device-corner radius.
- * The press state is a scale, never a shadow change.
- */
 @Composable
-private fun ServiceCard(
-    label: String,
-    title: String,
-    body: String,
-    enabled: Boolean,
-    onClick: () -> Unit,
-    mark: @Composable () -> Unit
-) {
-    val interactions = remember { MutableInteractionSource() }
-    val pressed by interactions.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.97f else 1f,
-        animationSpec = tween(durationMillis = 150, easing = EaseOut),
-        label = "cardPress"
-    )
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-                alpha = if (enabled) 1f else 0.5f
-            }
-            .shadow(
-                elevation = 14.dp,
-                shape = RoundedCornerShape(28.dp),
-                ambientColor = Color.Black.copy(alpha = 0.08f),
-                spotColor = Color.Black.copy(alpha = 0.08f)
-            )
-            .clip(RoundedCornerShape(28.dp))
-            .background(Panel)
-            .border(1.dp, Hairline, RoundedCornerShape(28.dp))
-            .clickable(
-                interactionSource = interactions,
-                indication = null,
-                enabled = enabled,
-                onClick = onClick
-            )
-            .padding(22.dp)
-    ) {
+private fun HomeHeader(colors: HomeColors) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(AccentTint),
-                contentAlignment = Alignment.Center
-            ) {
-                mark()
-            }
+            CutlyMark(colors)
             Spacer(Modifier.width(12.dp))
             Text(
-                text = label.uppercase(),
-                color = Faint,
+                text = "Cutly",
+                color = colors.ink,
                 fontFamily = TikTokSans,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 11.sp,
-                letterSpacing = 0.6.sp
+                fontWeight = FontWeight.Bold,
+                fontSize = 30.sp,
+                letterSpacing = (-0.8).sp
             )
         }
-
-        Spacer(Modifier.height(18.dp))
-
+        Spacer(Modifier.height(30.dp))
         Text(
-            text = title,
-            color = Ink,
+            text = "Make the take.\nKeep the good bits.",
+            color = colors.ink,
             fontFamily = TikTokSans,
             fontWeight = FontWeight.Bold,
-            fontSize = 29.sp,
-            letterSpacing = (-1.2).sp,
-            lineHeight = 32.sp
+            fontSize = 36.sp,
+            lineHeight = 38.sp,
+            letterSpacing = (-1.2).sp
         )
-
-        Spacer(Modifier.height(8.dp))
-
+        Spacer(Modifier.height(10.dp))
         Text(
-            text = body,
-            color = Muted,
+            text = "Shoot, transcribe, and clean up video in a few taps.",
+            color = colors.muted,
             fontFamily = TikTokSans,
             fontSize = 15.sp,
-            lineHeight = 22.sp,
-            letterSpacing = (-0.2).sp
+            lineHeight = 21.sp
         )
     }
 }
 
-/** The camera's mark: the record dot, the one thing that button has always been. */
 @Composable
-private fun RecordMark() {
-    Box(
+private fun CutlyMark(colors: HomeColors) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
-            .size(14.dp)
-            .clip(RoundedCornerShape(999.dp))
-            .background(Accent)
-    )
-}
-
-/** The transcriber's mark: three text rules, the last one short, the way a paragraph ends. */
-@Composable
-private fun TextMark() {
-    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        listOf(16.dp, 16.dp, 9.dp).forEach { width ->
-            Box(
-                modifier = Modifier
-                    .width(width)
-                    .height(2.5.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(Accent)
-            )
-        }
-    }
-}
-
-/** The cut's mark: two bars with a bite taken out between them, which is the whole operation. */
-@Composable
-private fun CutMark() {
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        listOf(7.dp, 11.dp).forEach { width ->
-            Box(
-                modifier = Modifier
-                    .width(width)
-                    .height(2.5.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(Accent)
-            )
-        }
-    }
-}
-
-/**
- * Installs and selects Cutly's own recogniser without hiding its storage cost.
- *
- * The model is optional because roughly 99 MB is a meaningful download. Progress and deletion
- * live beside the transcribe card, where the choice affects the very next picker action.
- */
-@Composable
-private fun OfflineModelField(
-    state: SherpaModelState,
-    selected: Boolean,
-    enabled: Boolean,
-    onDownload: () -> Unit,
-    onCancelOrDelete: () -> Unit,
-    onUseModel: () -> Unit,
-    onUseSystem: () -> Unit
-) {
-    val detail = when (state) {
-        SherpaModelState.Missing -> "Whisper tiny · 99 MB · English + Filipino"
-        is SherpaModelState.Downloading -> {
-            val percent = if (state.totalBytes <= 0) 0
-            else (state.downloadedBytes * 100 / state.totalBytes).coerceIn(0, 100)
-            "Downloading $percent%"
-        }
-        SherpaModelState.Verifying -> "Checking the downloaded files…"
-        SherpaModelState.Ready -> if (selected) "Whisper tiny · active" else "Whisper tiny · ready"
-        is SherpaModelState.Failed -> state.message
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .border(1.dp, Hairline, RoundedCornerShape(12.dp))
-            .padding(horizontal = 14.dp, vertical = 11.dp)
+            .size(52.dp)
+            .clip(RoundedCornerShape(17.dp))
+            .background(colors.ink)
+            .padding(horizontal = 10.dp)
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Multilingual offline model",
-                    color = Ink,
-                    fontFamily = TikTokSans,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 13.sp
-                )
-                Text(
-                    text = detail,
-                    color = if (state is SherpaModelState.Failed) Accent else Faint,
-                    fontFamily = TikTokSans,
-                    fontSize = 11.sp,
-                    lineHeight = 15.sp
-                )
-            }
-
-            Spacer(Modifier.width(10.dp))
-
-            when (state) {
-                SherpaModelState.Missing,
-                is SherpaModelState.Failed -> ModelAction("Download", enabled, onDownload)
-
-                is SherpaModelState.Downloading ->
-                    ModelAction("Cancel", enabled, onCancelOrDelete)
-
-                SherpaModelState.Verifying -> Unit
-                SherpaModelState.Ready -> Row {
-                    ModelAction(
-                        if (selected) "Use phone" else "Use model",
-                        enabled,
-                        if (selected) onUseSystem else onUseModel
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    ModelAction("Delete", enabled, onCancelOrDelete)
-                }
-            }
-        }
-
-        if (state is SherpaModelState.Downloading) {
-            val progress = if (state.totalBytes <= 0) 0f
-            else (state.downloadedBytes.toFloat() / state.totalBytes).coerceIn(0f, 1f)
-            Spacer(Modifier.height(9.dp))
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(3.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(Hairline)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(progress)
-                        .height(3.dp)
-                        .background(Accent)
-                )
-            }
-        }
+        Box(
+            Modifier
+                .width(13.dp)
+                .height(8.dp)
+                .clip(CircleShape)
+                .background(Color.White)
+        )
+        Box(
+            Modifier
+                .width(9.dp)
+                .height(8.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.75f))
+        )
+        Box(
+            Modifier
+                .width(6.dp)
+                .height(8.dp)
+                .clip(CircleShape)
+                .background(colors.accent)
+        )
     }
 }
 
 @Composable
-private fun ModelAction(label: String, enabled: Boolean, onClick: () -> Unit) {
+private fun SectionBadge(number: String, colors: HomeColors) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(34.dp)
+            .clip(CircleShape)
+            .background(colors.softAccent)
+    ) {
+        Text(
+            text = number,
+            color = colors.accent,
+            fontFamily = TikTokSans,
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp
+        )
+    }
+}
+
+@Composable
+private fun ActionPill(label: String, colors: HomeColors) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .heightIn(min = 48.dp)
+            .clip(CircleShape)
+            .background(colors.accent)
+            .padding(horizontal = 16.dp)
+    ) {
+        Text(
+            text = label.replace(" ↗", ""),
+            color = Color.White,
+            fontFamily = TikTokSans,
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp
+        )
+    }
+}
+
+@Composable
+private fun CardLabel(number: String, label: String, colors: HomeColors) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        SectionBadge(number, colors)
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = label.replaceFirstChar { it.uppercase() },
+            color = colors.ink,
+            fontFamily = TikTokSans,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 15.sp
+        )
+    }
+}
+
+@Composable
+private fun CardSurface(content: @Composable () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .background(Color.White)
+            .border(1.dp, Color(0xFFF0E7EA), RoundedCornerShape(24.dp))
+            .padding(16.dp)
+    ) {
+        Column {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun HomeSection(
+    number: String,
+    label: String,
+    colors: HomeColors,
+    content: @Composable () -> Unit
+) {
+    CardSurface {
+        CardLabel(number, label, colors)
+        Spacer(Modifier.height(7.dp))
+        content()
+    }
+}
+
+@Composable
+private fun ToolRow(
+    title: String,
+    detail: String,
+    action: String,
+    enabled: Boolean,
+    colors: HomeColors,
+    onClick: () -> Unit
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 enabled = enabled,
                 onClick = onClick
             )
-            .padding(horizontal = 2.dp)
+            .padding(top = 10.dp, bottom = 2.dp)
+            .graphicsLayer { alpha = if (enabled) 1f else 0.45f }
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = colors.ink,
+                fontFamily = TikTokSans,
+                fontWeight = FontWeight.Bold,
+                fontSize = 20.sp,
+                letterSpacing = (-0.5).sp
+            )
+            Spacer(Modifier.height(3.dp))
+            Text(
+                text = detail,
+                color = colors.muted,
+                fontFamily = TikTokSans,
+                fontSize = 13.sp
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        ActionPill(action, colors)
+    }
+}
+
+/** All transcription choices in one compact surface instead of three independent cards. */
+@Composable
+private fun TranscriptionPanel(
+    engine: TranscriptionEngine,
+    languages: List<TranscriptionLanguage>,
+    language: TranscriptionLanguage?,
+    sherpaModel: SherpaModelState,
+    geminiConfigured: Boolean,
+    enabled: Boolean,
+    colors: HomeColors,
+    onLanguage: () -> Unit,
+    onPhone: () -> Unit,
+    onWhisper: () -> Unit,
+    onDownload: () -> Unit,
+    onCancelOrDelete: () -> Unit,
+    onGemini: () -> Unit
+) {
+    val whisperLabel = when (sherpaModel) {
+        SherpaModelState.Missing -> "GET WHISPER"
+        is SherpaModelState.Downloading -> {
+            val percent = if (sherpaModel.totalBytes <= 0) 0
+            else (sherpaModel.downloadedBytes * 100 / sherpaModel.totalBytes).coerceIn(0, 100)
+            "CANCEL $percent%"
+        }
+        SherpaModelState.Verifying -> "CHECKING"
+        SherpaModelState.Ready -> "WHISPER"
+        is SherpaModelState.Failed -> "RETRY"
+    }
+    val whisperAction = when (sherpaModel) {
+        SherpaModelState.Missing, is SherpaModelState.Failed -> onDownload
+        is SherpaModelState.Downloading -> onCancelOrDelete
+        SherpaModelState.Verifying -> ({})
+        SherpaModelState.Ready -> onWhisper
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(colors.softAccent)
+            .padding(8.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(CircleShape)
+                .background(Color.White)
+        ) {
+            EngineChoice(
+                label = "PHONE",
+                selected = engine == TranscriptionEngine.SYSTEM,
+                enabled = enabled,
+                colors = colors,
+                onClick = onPhone,
+                modifier = Modifier.weight(1f)
+            )
+            EngineChoice(
+                label = whisperLabel,
+                selected = engine == TranscriptionEngine.SHERPA,
+                enabled = enabled && sherpaModel !is SherpaModelState.Verifying,
+                colors = colors,
+                onClick = whisperAction,
+                modifier = Modifier.weight(1f)
+            )
+            EngineChoice(
+                label = if (geminiConfigured) "GEMINI" else "GEMINI / KEY",
+                selected = engine == TranscriptionEngine.GEMINI,
+                enabled = enabled,
+                colors = colors,
+                onClick = onGemini,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        when (sherpaModel) {
+            is SherpaModelState.Downloading -> DownloadStatus(sherpaModel, colors)
+            SherpaModelState.Verifying -> MetaText("VERIFYING DOWNLOADED MODEL", colors)
+            is SherpaModelState.Failed -> MetaText("WHISPER MODEL UNAVAILABLE · TAP RETRY", colors)
+            else -> when (engine) {
+                TranscriptionEngine.SYSTEM -> LanguageMeta(
+                    languages = languages,
+                    language = language,
+                    enabled = enabled,
+                    colors = colors,
+                    onClick = onLanguage
+                )
+                TranscriptionEngine.SHERPA -> EngineMeta(
+                    text = "OFFLINE / AUTO LANGUAGE",
+                    action = "DELETE MODEL",
+                    enabled = enabled,
+                    colors = colors,
+                    onClick = onCancelOrDelete
+                )
+                TranscriptionEngine.GEMINI -> MetaText(
+                    "CLOUD / AUTO LANGUAGE / AUDIO UPLOAD",
+                    colors
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EngineChoice(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean,
+    colors: HomeColors,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .heightIn(min = 48.dp)
+            .clip(CircleShape)
+            .background(if (selected) colors.accent else Color.Transparent)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                enabled = enabled,
+                onClick = onClick
+            )
+            .padding(horizontal = 5.dp)
     ) {
         Text(
             text = label,
-            color = if (enabled) Accent else Faint,
+            color = when {
+                selected -> Color.White
+                enabled -> colors.ink
+                else -> colors.faint
+            },
             fontFamily = TikTokSans,
             fontWeight = FontWeight.SemiBold,
-            fontSize = 12.sp
+            fontSize = 11.sp,
+            maxLines = 1
         )
     }
 }
 
-/**
- * The chosen language, as one tappable field rather than a row of chips.
- *
- * The recogniser reports thirty-odd languages on some phones, which a horizontal strip of chips
- * turns into blind swiping. One field that states the current choice and opens a searchable list
- * is both smaller on the page and quicker to use.
- */
 @Composable
-private fun LanguageField(
+private fun LanguageMeta(
     languages: List<TranscriptionLanguage>,
-    selected: TranscriptionLanguage?,
+    language: TranscriptionLanguage?,
     enabled: Boolean,
+    colors: HomeColors,
     onClick: () -> Unit
 ) {
     if (languages.isEmpty()) {
-        Text(
-            text = "This phone has no on-device speech recogniser.",
-            color = Faint,
-            fontFamily = TikTokSans,
-            fontSize = 12.sp
-        )
+        MetaText("PHONE RECOGNISER UNAVAILABLE", colors)
         return
     }
+    EngineMeta(
+        text = "LANGUAGE / ${language?.label?.uppercase() ?: "CHOOSE"}",
+        action = "CHANGE",
+        enabled = enabled,
+        colors = colors,
+        onClick = onClick
+    )
+}
 
+@Composable
+private fun EngineMeta(
+    text: String,
+    action: String,
+    enabled: Boolean,
+    colors: HomeColors,
+    onClick: () -> Unit
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .border(1.dp, Hairline, RoundedCornerShape(12.dp))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                enabled = enabled,
-                onClick = onClick
-            )
-            // Comfortably past the 48dp minimum target, since this is the only control here.
-            .heightIn(min = 52.dp)
-            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .heightIn(min = 44.dp)
+            .padding(horizontal = 7.dp)
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "Transcription language",
-                color = Faint,
-                fontFamily = TikTokSans,
-                fontSize = 11.sp
-            )
-            Text(
-                text = selected?.label ?: "Choose one",
-                color = if (enabled) Ink else Muted,
-                fontFamily = TikTokSans,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 14.sp
-            )
-        }
         Text(
-            text = "Change",
-            color = if (enabled) Accent else Faint,
+            text = text,
+            color = colors.muted,
             fontFamily = TikTokSans,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 13.sp
+            fontSize = 11.sp,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            text = action,
+            color = if (enabled) colors.accent else colors.faint,
+            fontFamily = TikTokSans,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+            modifier = Modifier
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    enabled = enabled,
+                    onClick = onClick
+                )
+                .padding(vertical = 14.dp, horizontal = 3.dp)
         )
     }
 }
 
 @Composable
-private fun Chip(text: String) {
+private fun MetaText(text: String, colors: HomeColors) {
     Text(
         text = text,
-        color = Muted,
+        color = colors.muted,
         fontFamily = TikTokSans,
-        fontSize = 12.sp,
-        letterSpacing = (-0.1).sp,
-        modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .border(1.dp, Hairline, RoundedCornerShape(999.dp))
-            .padding(horizontal = 12.dp, vertical = 7.dp)
+        fontSize = 11.sp,
+        lineHeight = 15.sp,
+        modifier = Modifier.padding(horizontal = 7.dp, vertical = 14.dp)
     )
 }
 
-/**
- * Errors stay put — a toast that vanishes in 3.5s is a bad fit for a message the user needs to
- * act on (set an API key, retry a failed upload). This sits inline until dismissed or the next
- * transcribe attempt.
- */
 @Composable
-private fun ErrorBanner(message: String, onDismiss: () -> Unit) {
+private fun DownloadStatus(state: SherpaModelState.Downloading, colors: HomeColors) {
+    val progress = if (state.totalBytes <= 0) 0f
+    else (state.downloadedBytes.toFloat() / state.totalBytes).coerceIn(0f, 1f)
+    Column(modifier = Modifier.padding(horizontal = 7.dp, vertical = 11.dp)) {
+        Text(
+            text = "DOWNLOADING OFFLINE MODEL",
+            color = colors.muted,
+            fontFamily = TikTokSans,
+            fontSize = 11.sp
+        )
+        Spacer(Modifier.height(8.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(2.dp)
+                .background(colors.hairline)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(progress)
+                    .height(2.dp)
+                    .background(colors.accent)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ErrorBanner(message: String, colors: HomeColors, onDismiss: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFFFDECEC))
-            .border(1.dp, Color(0xFFF5C2C2), RoundedCornerShape(16.dp))
-            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .background(colors.softAccent)
+            .border(1.dp, colors.hairlineStrong, RoundedCornerShape(16.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
         Text(
             text = message,
-            color = Color(0xFFB3261E),
+            color = colors.ink,
             fontFamily = TikTokSans,
-            fontSize = 13.sp,
-            lineHeight = 18.sp,
+            fontSize = 12.sp,
+            lineHeight = 17.sp,
             modifier = Modifier.weight(1f)
         )
         Spacer(Modifier.width(10.dp))
         Text(
-            text = "Dismiss",
-            color = Color(0xFFB3261E),
+            text = "DISMISS",
+            color = colors.accent,
             fontFamily = TikTokSans,
             fontWeight = FontWeight.SemiBold,
-            fontSize = 13.sp,
-            modifier = Modifier.clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onDismiss
-            )
+            fontSize = 11.sp,
+            modifier = Modifier
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss
+                )
+                .padding(vertical = 10.dp)
         )
     }
 }
 
-/** Extraction and upload both hold the whole screen, so the wait is stated rather than implied. */
 @Composable
 private fun BusyOverlay(status: String?) {
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Scrim)
-            // Swallows taps so a card cannot be pressed behind the overlay.
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -726,33 +768,56 @@ private fun BusyOverlay(status: String?) {
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            CircularProgressIndicator(color = Color.White)
-            Spacer(Modifier.height(16.dp))
+            CircularProgressIndicator(color = Color(0xFFFF3B5C), strokeWidth = 3.dp)
+            Spacer(Modifier.height(14.dp))
             Text(
-                text = status ?: "Working…",
+                text = (status ?: "Working…").uppercase(),
                 color = Color.White,
                 fontFamily = TikTokSans,
-                fontSize = 14.sp
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 12.sp
             )
         }
     }
 }
 
-/**
- * Fade and rise, on the shared expo-out curve, staggered by [delayMillis] so the page assembles
- * top-down instead of appearing all at once.
- *
- * Honours the system animation scale — Android's equivalent of prefers-reduced-motion — by
- * skipping straight to the resting state.
- */
+@Immutable
+private data class HomeColors(
+    val background: Color,
+    val ink: Color,
+    val accent: Color,
+    val softAccent: Color,
+    val hairline: Color,
+    val hairlineStrong: Color,
+    val muted: Color,
+    val faint: Color
+)
+
+@Composable
+private fun homeColors(): HomeColors {
+    return remember {
+        HomeColors(
+            background = Color(0xFFFFFBFC),
+            ink = Color(0xFF0F0F12),
+            accent = Color(0xFFFF3B5C),
+            softAccent = Color(0xFFFFEDF1),
+            hairline = Color(0xFFF4DCE2),
+            hairlineStrong = Color(0xFFFFB8C6),
+            muted = Color(0xFF65656B),
+            faint = Color(0xFF8C8C92)
+        )
+    }
+}
+
+/** Brief fade-up entrance; disabled with the platform animation scale. */
 @Composable
 private fun Reveal(delayMillis: Int, content: @Composable () -> Unit) {
     val animate = remember { ValueAnimator.areAnimatorsEnabled() }
     var shown by remember { mutableStateOf(!animate) }
     val progress by animateFloatAsState(
         targetValue = if (shown) 1f else 0f,
-        animationSpec = tween(durationMillis = 520, easing = EaseOut),
-        label = "reveal"
+        animationSpec = tween(durationMillis = 500, easing = EaseOut),
+        label = "homeReveal"
     )
 
     LaunchedEffect(Unit) {
@@ -765,7 +830,7 @@ private fun Reveal(delayMillis: Int, content: @Composable () -> Unit) {
     Box(
         modifier = Modifier.graphicsLayer {
             alpha = progress
-            translationY = (1f - progress) * 24.dp.toPx()
+            translationY = (1f - progress) * 12.dp.toPx()
         }
     ) {
         content()

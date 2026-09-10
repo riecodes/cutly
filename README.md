@@ -25,7 +25,7 @@ Three services on Android, behind one hub screen:
 | Capture | CameraX (`camera-video`, `camera-compose`) |
 | Export / concat | Media3 Transformer + Presentation effect |
 | Delivery | MediaStore, `Movies/Cutly` |
-| Transcription | Android `SpeechRecognizer` or sherpa-onnx Whisper, audio only |
+| Transcription | Android `SpeechRecognizer`, sherpa-onnx Whisper, or Gemini, audio only |
 | Cloud transcript / captions | OpenAI `whisper-1` or Gemini, audio only |
 | Silence detection | `MediaExtractor` + `MediaCodec`, RMS per 20 ms window |
 | Captions | Media3 `CanvasOverlay` on the composition |
@@ -85,11 +85,12 @@ That single choice is what makes discard, per-clip export, and mid-take lens swi
 
 ## Transcription
 
-From the hub, **Transcribe a video** stays offline. It can use Android's own on-device recogniser
-with a language installed by the system, or an optional multilingual Whisper tiny INT8 model run
-through sherpa-onnx. The model is a roughly 99 MB opt-in download, resumes through Android's
-DownloadManager after process death, is SHA-256 verified before use, and can be deleted from the
-same control. It is not bundled in the APK.
+From the hub, **Transcribe a video** offers Android's own on-device recogniser, an optional
+multilingual Whisper tiny INT8 model run through sherpa-onnx, and Gemini when `gemini.api.key` is
+configured. The two local options stay offline; Gemini is explicit and labels that it uploads the
+extracted audio before it can be selected. The Whisper model is a roughly 99 MB opt-in download,
+resumes through Android's DownloadManager after process death, is SHA-256 verified before use, and
+can be deleted from the same control. It is not bundled in the APK.
 
 The camera's **Transcribe to text** action and the cut sheet's **Add captions** action use a
 configured cloud backend. OpenAI is selected when `openai.api.key` exists and returns native
@@ -102,7 +103,8 @@ unintelligible to a speech model, and the transcript is of what was said.
 ### Setup
 
 Cloud transcription is optional. Put either personal key in `local.properties`, which is
-untracked; OpenAI takes precedence when both are present:
+untracked. The Gemini key also enables the explicit Gemini choice under **Transcribe a video**;
+OpenAI takes precedence for camera transcripts and cut captions when both keys are present:
 
 ```properties
 openai.api.key=<OpenAI API key>

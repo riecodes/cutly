@@ -20,4 +20,10 @@ class CloudTranscriberFactoryTest {
     fun noKeyLeavesCloudTranscriptionUnavailableAtUseTime() {
         assertNull(CloudTranscriberFactory.create("", ""))
     }
+
+    @Test
+    fun explicitGeminiSelectionRequiresItsOwnKey() {
+        assertTrue(CloudTranscriberFactory.createGemini("gemini") is GeminiTranscriber)
+        assertNull(CloudTranscriberFactory.createGemini(""))
+    }
 }
