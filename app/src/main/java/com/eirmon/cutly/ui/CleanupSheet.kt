@@ -1,5 +1,8 @@
 package com.eirmon.cutly.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.compose.foundation.Image
@@ -136,6 +139,7 @@ internal fun CleanupSheet(
     onAddCaptions: () -> Unit,
     onCaptionsEnabled: (Boolean) -> Unit,
     onTranscribe: () -> Unit,
+    onCancelTranscription: () -> Unit,
     onSave: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -266,7 +270,9 @@ internal fun CleanupSheet(
                     EditorTool.Transcript -> TranscriptControls(
                         segments = review.captions,
                         enabled = !busy && !saved,
-                        onTranscribe = onTranscribe
+                        transcribing = status?.startsWith("Transcri") == true,
+                        onTranscribe = onTranscribe,
+                        onCancel = onCancelTranscription
                     )
                 }
             }
@@ -732,27 +738,53 @@ private fun CaptionControls(
 }
 
 @Composable
-private fun TranscriptControls(segments: List<Segment>?, enabled: Boolean, onTranscribe: () -> Unit) {
+private fun TranscriptControls(
+    segments: List<Segment>?,
+    enabled: Boolean,
+    transcribing: Boolean,
+    onTranscribe: () -> Unit,
+    onCancel: () -> Unit
+) {
     if (segments == null) {
         ControlAction(
-            title = "Transcribe project",
-            detail = "The transcript is saved with this project, even if you leave without copying it.",
-            action = "TRANSCRIBE",
-            enabled = enabled,
-            onClick = onTranscribe
+            title = if (transcribing) "Transcribing project" else "Transcribe project",
+            detail = if (transcribing) "If it fails, Cutly will keep retrying until you cancel."
+            else "The transcript is saved with this project, even if you leave without copying it.",
+            action = if (transcribing) "CANCEL" else "TRANSCRIBE",
+            enabled = if (transcribing) true else enabled,
+            onClick = if (transcribing) onCancel else onTranscribe
         )
     } else {
+        val context = LocalContext.current
+        val transcript = Segment.render(segments)
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
-            Text(
-                "SAVED TRANSCRIPT",
-                color = Accent,
-                fontFamily = TikTokSans,
-                fontWeight = FontWeight.Bold,
-                fontSize = 10.sp
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "SAVED TRANSCRIPT",
+                    color = Accent,
+                    fontFamily = TikTokSans,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 10.sp
+                )
+                Text(
+                    "COPY",
+                    color = Color.White,
+                    fontFamily = TikTokSans,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 10.sp,
+                    modifier = Modifier.clickable {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Cutly transcript", transcript))
+                    }.padding(8.dp)
+                )
+            }
             Spacer(Modifier.height(7.dp))
             Text(
-                Segment.render(segments),
+                transcript,
                 color = Color.White,
                 fontFamily = TikTokSans,
                 fontSize = 12.sp,

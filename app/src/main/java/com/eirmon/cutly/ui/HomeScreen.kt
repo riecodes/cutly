@@ -262,6 +262,7 @@ fun HomeScreen(
             onAddCaptions = cleanupViewModel::addCaptions,
             onCaptionsEnabled = cleanupViewModel::setCaptionsEnabled,
             onTranscribe = cleanupViewModel::transcribe,
+            onCancelTranscription = cleanupViewModel::cancelTranscription,
             onSave = cleanupViewModel::save,
             onDismiss = cleanupViewModel::closeReview
         )

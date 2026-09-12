@@ -19,11 +19,15 @@ import com.eirmon.cutly.transcribe.CloudTranscriberFactory
 import com.eirmon.cutly.transcribe.Segment
 import com.eirmon.cutly.transcribe.Transcriber
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -114,6 +118,7 @@ class CleanupViewModel(application: Application) : AndroidViewModel(application)
     private val projectSource = File(projectDir, "source.mp4")
     private val projectLevels = File(projectDir, "levels.bin")
     private val projectPrefs = application.getSharedPreferences("cut-project", 0)
+    private var transcriptJob: Job? = null
 
     private val _state = MutableStateFlow(UiState(hasProject = projectSource.exists()))
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -357,35 +362,52 @@ class CleanupViewModel(application: Application) : AndroidViewModel(application)
 
         _state.update { it.copy(isBusy = true, status = "Transcribing…", error = null) }
 
-        viewModelScope.launch {
+        transcriptJob = viewModelScope.launch {
             // Transformer needs the main looper, so extraction stays on it; the upload moves off.
-            val result = runCatching {
-                val audio = exporter.extractAudio(source)
-                try {
-                    transcriber.transcribe(audio)
-                } finally {
-                    audio.delete()
-                }
+            val audio = try {
+                exporter.extractAudio(source)
+            } catch (cancelled: CancellationException) {
+                _state.update { it.copy(isBusy = false, status = null) }
+                throw cancelled
+            } catch (failure: Throwable) {
+                fail("Could not transcribe", failure)
+                return@launch
             }
-
-            result.fold(
-                onSuccess = { segments ->
-                    _state.update {
-                        it.copy(
-                            isBusy = false,
-                            status = null,
-                            review = it.review?.copy(captions = segments),
-                            // An empty transcript is a real answer, and silently leaving the
-                            // button unchanged would read as the request having failed.
-                            error = if (segments.isEmpty()) "No speech found to caption." else null
-                        )
+            try {
+                while (isActive) {
+                    try {
+                        val segments = transcriber.transcribe(audio)
+                        _state.update {
+                            it.copy(
+                                isBusy = false,
+                                status = null,
+                                review = it.review?.copy(captions = segments),
+                                // An empty transcript is a real answer, and silently leaving the
+                                // button unchanged would read as the request having failed.
+                                error = if (segments.isEmpty()) "No speech found to caption." else null
+                            )
+                        }
+                        if (segments.isNotEmpty() && enableCaptions) setCaptionsEnabled(true)
+                        _state.value.review?.let(::persist)
+                        return@launch
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Throwable) {
+                        _state.update { it.copy(status = "Transcription failed. Retrying…", error = null) }
+                        delay(1_500L)
                     }
-                    if (segments.isNotEmpty() && enableCaptions) setCaptionsEnabled(true)
-                    _state.value.review?.let(::persist)
-                },
-                onFailure = { failure -> fail("Could not transcribe", failure) }
-            )
+                }
+            } catch (cancelled: CancellationException) {
+                _state.update { it.copy(isBusy = false, status = null) }
+            } finally {
+                audio.delete()
+                transcriptJob = null
+            }
         }
+    }
+
+    fun cancelTranscription() {
+        transcriptJob?.cancel()
     }
 
     fun dismissError() {
