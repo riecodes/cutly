@@ -159,6 +159,8 @@ internal fun EditorScreen(
     onAddCaptions: () -> Unit,
     onCaptionsEnabled: (Boolean) -> Unit,
     onTranscribe: () -> Unit,
+    onRegenerateTranscript: () -> Unit,
+    onDeleteTranscript: () -> Unit,
     onCancelTranscription: () -> Unit,
     onSave: () -> Unit,
     onDismiss: () -> Unit
@@ -306,11 +308,15 @@ internal fun EditorScreen(
                     engineLabel = engineLabel,
                     needsKey = needsKey,
                     onTranscribe = { if (uploads) pendingCloud = onTranscribe else onTranscribe() },
+                    onRegenerate = { if (uploads) pendingCloud = onRegenerateTranscript else onRegenerateTranscript() },
+                    onDelete = onDeleteTranscript,
                     onOpenSettings = onOpenSettings,
                     onCancel = onCancelTranscription
                 )
             }
         }
+
+        CloudConsentGate(provider = cloudProvider, pending = pendingCloud, onSettled = { pendingCloud = null })
 
         error?.let { message ->
             Text(
@@ -876,10 +882,14 @@ private fun TranscriptControls(
     engineLabel: String,
     needsKey: Boolean,
     onTranscribe: () -> Unit,
+    onRegenerate: () -> Unit,
+    onDelete: () -> Unit,
     onOpenSettings: () -> Unit,
     onCancel: () -> Unit
 ) {
-    if (segments == null) {
+    // A regeneration shows the same progress card as a first transcript; the old text is
+    // still in the review and comes back the moment the request is cancelled.
+    if (segments == null || transcribing) {
         val needsKey = needsKey && !transcribing
         ControlAction(
             title = if (transcribing) "Transcribing project" else "Transcribe project",
@@ -916,17 +926,14 @@ private fun TranscriptControls(
                     fontWeight = FontWeight.Bold,
                     fontSize = 10.sp
                 )
-                Text(
-                    "COPY",
-                    color = Color.White,
-                    fontFamily = TikTokSans,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 10.sp,
-                    modifier = Modifier.clickable {
+                Row {
+                    HeaderAction("COPY", enabled = true) {
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         clipboard.setPrimaryClip(ClipData.newPlainText("Cutly transcript", transcript))
-                    }.padding(8.dp)
-                )
+                    }
+                    HeaderAction("REDO", enabled = enabled, onClick = onRegenerate)
+                    HeaderAction("DELETE", enabled = enabled, onClick = onDelete)
+                }
             }
             Spacer(Modifier.height(7.dp))
             Text(
@@ -938,6 +945,21 @@ private fun TranscriptControls(
             )
         }
     }
+}
+
+/** The small caps text buttons in a panel header. Undo covers what they do, so no confirm. */
+@Composable
+private fun HeaderAction(label: String, enabled: Boolean, onClick: () -> Unit) {
+    Text(
+        label,
+        color = if (enabled) Color.White else EditorFaint,
+        fontFamily = TikTokSans,
+        fontWeight = FontWeight.Bold,
+        fontSize = 10.sp,
+        modifier = Modifier.clickable(enabled = enabled, onClick = onClick)
+            .semantics { role = Role.Button }
+            .padding(8.dp)
+    )
 }
 
 @Composable

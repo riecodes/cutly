@@ -509,10 +509,22 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         requestTranscript(enableCaptions = false)
     }
 
-    private fun requestTranscript(enableCaptions: Boolean) {
+    /** Drops the saved transcript. Goes through [edit], so undo brings it back. */
+    fun deleteTranscript() = edit { it.copy(captions = null, captionsEnabled = false) }
+
+    /**
+     * Asks the engine again. The old transcript stays in the review until the new one lands, and
+     * the swap is one undo step, so a worse result is one tap from the previous one.
+     */
+    fun regenerateTranscript() {
+        if (_state.value.review?.captions == null) return
+        requestTranscript(enableCaptions = false, replace = true)
+    }
+
+    private fun requestTranscript(enableCaptions: Boolean, replace: Boolean = false) {
         val current = _state.value
         val review = current.review ?: return
-        if (current.isBusy || review.captions != null || review.savedName != null) return
+        if (current.isBusy || (review.captions != null && !replace) || review.savedName != null) return
 
         val transcriber = runCatching {
             TranscriberFactory.create(getApplication(), settings, sherpa)
@@ -544,22 +556,23 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                     }
                     transcriber.transcribe(audio)
                 }
-                var done: Review? = null
-                _state.update {
-                    val open = it.review?.copy(
+                // Through [edit] so the arrival is an undo step, whether it is the first transcript
+                // or a replacement for one the user liked better.
+                edit { open ->
+                    open.copy(
                         captions = segments,
-                        captionsEnabled = it.review.captionsEnabled || (enableCaptions && segments.isNotEmpty())
-                    ).also { updated -> done = updated }
+                        captionsEnabled = (open.captionsEnabled || enableCaptions) && segments.isNotEmpty()
+                    )
+                }
+                _state.update {
                     it.copy(
                         isBusy = false,
                         status = null,
-                        review = open,
                         // An empty transcript is a real answer, and silently leaving the
                         // button unchanged would read as the request having failed.
                         error = if (segments.isEmpty()) "No speech found to caption." else null
                     )
                 }
-                done?.let(::persist)
             } catch (cancelled: CancellationException) {
                 _state.update { it.copy(isBusy = false, status = null) }
             } catch (failure: Throwable) {

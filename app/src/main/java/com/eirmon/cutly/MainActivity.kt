@@ -175,6 +175,8 @@ class MainActivity : ComponentActivity() {
                         onAddCaptions = editor::addCaptions,
                         onCaptionsEnabled = editor::setCaptionsEnabled,
                         onTranscribe = editor::transcribe,
+                        onRegenerateTranscript = editor::regenerateTranscript,
+                        onDeleteTranscript = editor::deleteTranscript,
                         onCancelTranscription = editor::cancelTranscription,
                         onSave = editor::save,
                         onDismiss = {
