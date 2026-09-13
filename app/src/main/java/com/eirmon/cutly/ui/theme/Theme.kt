@@ -29,21 +29,18 @@ val DialogTitle = Color(0xFF161823)
 val DialogNeutral = Color(0xFF57585F)
 val DialogDivider = Color(0xFFE3E3E4)
 
-/**
- * The home hub is a warm light surface, not a dark one — it is a launcher, not a viewfinder.
- * Canvas is off-white and white is reserved for the cards floating on it; a pure-white page reads
- * as unfinished at this size.
- */
-val Canvas = Color(0xFFF5F5F5)
-val Panel = Color(0xFFFFFFFF)
+/** Light-dialog text tones, used by the language picker. */
 val Hairline = Color(0x12000000)
-val HairlineStrong = Color(0x1F000000)
-val Ink = Color(0xFF1D1D1F)
 val Muted = Color(0xFF86868B)
 val Faint = Color(0xFFAEAEB2)
 
-/** The accent at ~12% alpha. A tint, never a lighter hue. */
-val AccentTint = Color(0x1FEA445A)
+/** The editor and the project shell: one dark surface family, panels a step lighter. */
+val EditorSurface = Color(0xFF111114)
+val EditorPanel = Color(0xFF1B1B1F)
+val EditorTrack = Color(0xFF2A2A2F)
+val EditorMuted = Color(0xFFA0A0A8)
+val EditorFaint = Color(0xFF6F6F77)
+val EditorLine = Color(0xFF35353B)
 
 /**
  * Expo-out. Every hand-written transition in the app uses this one curve, which is what makes
@@ -54,9 +51,9 @@ val EaseOut = CubicBezierEasing(0.23f, 1f, 0.32f, 1f)
 private val CutlyColors = darkColorScheme(
     primary = Accent,
     onPrimary = Color.White,
-    background = Color.Black,
+    background = EditorSurface,
     onBackground = Color.White,
-    surface = Color(0xFF121215),
+    surface = EditorPanel,
     onSurface = Color.White
 )
 

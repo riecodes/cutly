@@ -69,27 +69,29 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.media3.transformer.Composition
-import com.eirmon.cutly.CleanupViewModel
+import androidx.activity.compose.BackHandler
+import com.eirmon.cutly.EditorViewModel
 import com.eirmon.cutly.audio.SilenceSettings
 import com.eirmon.cutly.audio.Span
 import com.eirmon.cutly.export.CutTimeline
 import com.eirmon.cutly.transcribe.Segment
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import com.eirmon.cutly.ui.theme.Accent
+import com.eirmon.cutly.ui.theme.EditorFaint
+import com.eirmon.cutly.ui.theme.EditorLine
+import com.eirmon.cutly.ui.theme.EditorMuted
+import com.eirmon.cutly.ui.theme.EditorPanel
+import com.eirmon.cutly.ui.theme.EditorSurface
+import com.eirmon.cutly.ui.theme.EditorTrack
 import com.eirmon.cutly.ui.theme.TikTokSans
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
-private val EditorSurface = Color(0xFF111114)
-private val EditorPanel = Color(0xFF1B1B1F)
-private val EditorTrack = Color(0xFF2A2A2F)
-private val EditorMuted = Color(0xFFA0A0A8)
-private val EditorFaint = Color(0xFF6F6F77)
-private val EditorLine = Color(0xFF35353B)
 private const val NO_CLIP_SELECTED = -1
 
 private enum class EditorTool(val label: String, val mark: String) {
@@ -126,16 +128,21 @@ internal fun ProjectOpening(status: String?) {
     }
 }
 
-/** Full-screen project editor. Preview, clips, tools and export now share one timeline. */
+/** Full-screen project editor. Preview, clips, tools and export share one timeline. */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
-internal fun CleanupSheet(
-    review: CleanupViewModel.Review,
+internal fun EditorScreen(
+    review: EditorViewModel.Review,
     status: String?,
     error: String?,
     preview: Composition?,
+    engineLabel: String,
+    needsKey: Boolean,
+    uploads: Boolean,
     cloudProvider: String?,
     onOpenSettings: () -> Unit,
     onSettingsChange: (SilenceSettings) -> Unit,
+    onRedetect: () -> Unit,
     onClipChange: (Int, Long, Long) -> Unit,
     onRemoveClip: (Int) -> Unit,
     onAddCaptions: () -> Unit,
@@ -154,6 +161,7 @@ internal fun CleanupSheet(
     var seekId by remember { mutableIntStateOf(0) }
     var seek by remember { mutableStateOf<PreviewSeek?>(null) }
     var scrubbing by remember { mutableStateOf(false) }
+    var pendingCloud by remember { mutableStateOf<(() -> Unit)?>(null) }
     val busy = status != null || saveRequested
 
     LaunchedEffect(review.keep.size) {
@@ -171,150 +179,154 @@ internal fun CleanupSheet(
         }
     }
 
-    Dialog(
-        onDismissRequest = { if (!busy) onDismiss() },
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    BackHandler { if (!busy) onDismiss() }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(EditorSurface)
+            .windowInsetsPadding(WindowInsets.safeDrawing)
     ) {
-        Column(
+        EditorHeader(
+            title = if (saved) "Saved to Movies/Cutly" else review.name,
+            canSave = review.canSave && !busy,
+            onBack = { if (!busy) onDismiss() },
+            onSave = { if (review.canSave && !busy) saveRequested = true }
+        )
+
+        Box(
             modifier = Modifier
-                .fillMaxSize()
-                .background(EditorSurface)
-                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 60.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center
         ) {
-            EditorHeader(
-                saved = saved,
-                canSave = review.canSave && !busy,
-                onBack = { if (!busy) onDismiss() },
-                onSave = { if (review.canSave && !busy) saveRequested = true }
-            )
-
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = 60.dp, vertical = 8.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                if (busy || editing) {
-                    CutPreviewLoading(
-                        message = status ?: if (saveRequested) "Preparing export…" else "Updating preview…",
-                        modifier = Modifier.fillMaxHeight()
-                    )
-                } else {
-                    CutPreview(
-                        composition = preview,
-                        seek = seek,
-                        scrubbing = scrubbing,
-                        onPositionChanged = { playheadMs = it },
-                        modifier = Modifier.fillMaxHeight()
-                    )
-                }
-            }
-
-            TimelineHeader(review, playheadMs)
-            TimelineScrubber(
-                positionMs = playheadMs,
-                durationMs = review.keptMs,
-                enabled = !busy && review.keep.isNotEmpty(),
-                onScrubbingChange = { scrubbing = it },
-                onSeek = { position ->
-                    playheadMs = position
-                    seek = PreviewSeek(position, ++seekId)
-                }
-            )
-            ClipTimeline(
-                source = review.source,
-                clips = review.keep,
-                totalMs = review.originalMs,
-                playheadMs = playheadMs,
-                selected = selectedClip,
-                enabled = !busy && !saved,
-                onEditingChange = { editing = it },
-                onClipChange = onClipChange,
-                onSelect = {
-                    tool = EditorTool.Clips
-                    if (selectedClip == it) {
-                        selectedClip = NO_CLIP_SELECTED
-                    } else {
-                        selectedClip = it
-                        val start = CutTimeline.outputStartMs(review.keep, it)
-                        playheadMs = start
-                        seek = PreviewSeek(start, ++seekId)
-                    }
-                }
-            )
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 138.dp, max = 178.dp)
-                    .background(EditorPanel)
-            ) {
-                when (tool) {
-                    EditorTool.Clips -> ClipControls(
-                        clips = review.keep,
-                        selected = selectedClip,
-                        enabled = !busy && !saved,
-                        onRemove = onRemoveClip
-                    )
-                    EditorTool.Cut -> CutControls(
-                        settings = review.settings,
-                        enabled = !busy && !saved,
-                        onEditingChange = { editing = it },
-                        onSettingsChange = onSettingsChange
-                    )
-                    EditorTool.Captions -> CaptionControls(
-                        review = review,
-                        enabled = !busy && !saved,
-                        cloudProvider = cloudProvider,
-                        onAdd = onAddCaptions,
-                        onOpenSettings = onOpenSettings,
-                        onEnabled = onCaptionsEnabled
-                    )
-                    EditorTool.Transcript -> TranscriptControls(
-                        segments = review.captions,
-                        enabled = !busy && !saved,
-                        transcribing = status?.startsWith("Transcri") == true,
-                        cloudProvider = cloudProvider,
-                        onTranscribe = onTranscribe,
-                        onOpenSettings = onOpenSettings,
-                        onCancel = onCancelTranscription
-                    )
-                }
-            }
-
-            error?.let { message ->
-                Text(
-                    text = message,
-                    color = Accent,
-                    fontFamily = TikTokSans,
-                    fontSize = 11.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(EditorPanel)
-                        .padding(horizontal = 16.dp, vertical = 5.dp)
+            if (busy || editing) {
+                CutPreviewLoading(
+                    message = status ?: if (saveRequested) "Preparing export…" else "Updating preview…",
+                    modifier = Modifier.fillMaxHeight()
+                )
+            } else {
+                CutPreview(
+                    composition = preview,
+                    seek = seek,
+                    scrubbing = scrubbing,
+                    onPositionChanged = { playheadMs = it },
+                    modifier = Modifier.fillMaxHeight()
                 )
             }
-            ToolBar(selected = tool, enabled = !busy) { tool = it }
         }
+
+        TimelineHeader(review, playheadMs)
+        TimelineScrubber(
+            positionMs = playheadMs,
+            durationMs = review.keptMs,
+            enabled = !busy && review.keep.isNotEmpty(),
+            onScrubbingChange = { scrubbing = it },
+            onSeek = { position ->
+                playheadMs = position
+                seek = PreviewSeek(position, ++seekId)
+            }
+        )
+        ClipTimeline(
+            source = review.source,
+            clips = review.keep,
+            totalMs = review.originalMs,
+            playheadMs = playheadMs,
+            selected = selectedClip,
+            enabled = !busy && !saved,
+            onEditingChange = { editing = it },
+            onClipChange = onClipChange,
+            onSelect = {
+                tool = EditorTool.Clips
+                if (selectedClip == it) {
+                    selectedClip = NO_CLIP_SELECTED
+                } else {
+                    selectedClip = it
+                    val start = CutTimeline.outputStartMs(review.keep, it)
+                    playheadMs = start
+                    seek = PreviewSeek(start, ++seekId)
+                }
+            }
+        )
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 138.dp, max = 178.dp)
+                .background(EditorPanel)
+        ) {
+            when (tool) {
+                EditorTool.Clips -> ClipControls(
+                    clips = review.keep,
+                    selected = selectedClip,
+                    enabled = !busy && !saved,
+                    onRemove = onRemoveClip
+                )
+                EditorTool.Cut -> CutControls(
+                    settings = review.settings,
+                    manualEdits = review.manualEdits,
+                    enabled = !busy && !saved,
+                    onEditingChange = { editing = it },
+                    onSettingsChange = onSettingsChange,
+                    onRedetect = onRedetect
+                )
+                EditorTool.Captions -> CaptionControls(
+                    review = review,
+                    enabled = !busy && !saved,
+                    engineLabel = engineLabel,
+                    needsKey = needsKey,
+                    onAdd = { if (uploads) pendingCloud = onAddCaptions else onAddCaptions() },
+                    onOpenSettings = onOpenSettings,
+                    onEnabled = onCaptionsEnabled
+                )
+                EditorTool.Transcript -> TranscriptControls(
+                    segments = review.captions,
+                    enabled = !busy && !saved,
+                    transcribing = status?.startsWith("Transcri") == true,
+                    engineLabel = engineLabel,
+                    needsKey = needsKey,
+                    onTranscribe = { if (uploads) pendingCloud = onTranscribe else onTranscribe() },
+                    onOpenSettings = onOpenSettings,
+                    onCancel = onCancelTranscription
+                )
+            }
+        }
+
+        error?.let { message ->
+            Text(
+                text = message,
+                color = Accent,
+                fontFamily = TikTokSans,
+                fontSize = 11.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(EditorPanel)
+                    .padding(horizontal = 16.dp, vertical = 5.dp)
+            )
+        }
+        ToolBar(selected = tool, enabled = !busy) { tool = it }
     }
 }
 
 @Composable
-private fun EditorHeader(saved: Boolean, canSave: Boolean, onBack: () -> Unit, onSave: () -> Unit) {
+private fun EditorHeader(title: String, canSave: Boolean, onBack: () -> Unit, onSave: () -> Unit) {
+    val saved = title.startsWith("Saved")
     Row(
         modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         HeaderAction("‹", Color.White, onBack)
         Text(
-            text = if (saved) "Saved to Movies/Cutly" else "Project",
+            text = title,
             color = Color.White,
             fontFamily = TikTokSans,
             fontWeight = FontWeight.SemiBold,
             fontSize = 15.sp,
             textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)
         )
         HeaderAction(
@@ -331,7 +343,8 @@ private fun HeaderAction(text: String, color: Color, onClick: () -> Unit) {
         modifier = Modifier
             .width(70.dp)
             .height(48.dp)
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick),
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick)
+            .semantics { role = Role.Button },
         contentAlignment = Alignment.Center
     ) {
         Text(
@@ -345,7 +358,7 @@ private fun HeaderAction(text: String, color: Color, onClick: () -> Unit) {
 }
 
 @Composable
-private fun TimelineHeader(review: CleanupViewModel.Review, playheadMs: Long) {
+private fun TimelineHeader(review: EditorViewModel.Review, playheadMs: Long) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -684,14 +697,42 @@ private fun ClipControls(
 @Composable
 private fun CutControls(
     settings: SilenceSettings,
+    manualEdits: Boolean,
     enabled: Boolean,
     onEditingChange: (Boolean) -> Unit,
-    onSettingsChange: (SilenceSettings) -> Unit
+    onSettingsChange: (SilenceSettings) -> Unit,
+    onRedetect: () -> Unit
 ) {
     Column(
         modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 9.dp)
     ) {
+        if (manualEdits) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Hand edits kept. Sliders will not move clips.",
+                    color = EditorMuted,
+                    fontFamily = TikTokSans,
+                    fontSize = 10.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    "RE-DETECT",
+                    color = if (enabled) Accent else EditorFaint,
+                    fontFamily = TikTokSans,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 10.sp,
+                    modifier = Modifier
+                        .clickable(enabled = enabled, onClick = onRedetect)
+                        .semantics { role = Role.Button }
+                        .padding(8.dp)
+                )
+            }
+        }
         CompactKnob(
             "Silence threshold", settings.thresholdDb, -70f..-15f, enabled,
             { "${it.roundToInt()} dB" }, onEditingChange
@@ -709,15 +750,16 @@ private fun CutControls(
 
 @Composable
 private fun CaptionControls(
-    review: CleanupViewModel.Review,
+    review: EditorViewModel.Review,
     enabled: Boolean,
-    cloudProvider: String?,
+    engineLabel: String,
+    needsKey: Boolean,
     onAdd: () -> Unit,
     onOpenSettings: () -> Unit,
     onEnabled: (Boolean) -> Unit
 ) {
     val transcript = review.captions
-    val needsKey = transcript == null && cloudProvider == null
+    val needsKey = transcript == null && needsKey
     ControlAction(
         title = when {
             transcript == null -> "Generate captions"
@@ -725,8 +767,8 @@ private fun CaptionControls(
             else -> "Apply saved transcript"
         },
         detail = when {
-            needsKey -> "Captions use a cloud transcriber. Add your OpenAI or Gemini key first."
-            transcript == null -> "Uploads the audio to $cloudProvider, then burns captions into the export."
+            needsKey -> "Cloud transcription is selected. Add your OpenAI or Gemini key first."
+            transcript == null -> "Transcribes $engineLabel, then burns captions into the export."
             transcript.isEmpty() -> "No speech was found in this project."
             review.captionsEnabled -> "${transcript.size} lines will appear in the saved video."
             else -> "${transcript.size} transcript lines are ready."
@@ -754,19 +796,20 @@ private fun TranscriptControls(
     segments: List<Segment>?,
     enabled: Boolean,
     transcribing: Boolean,
-    cloudProvider: String?,
+    engineLabel: String,
+    needsKey: Boolean,
     onTranscribe: () -> Unit,
     onOpenSettings: () -> Unit,
     onCancel: () -> Unit
 ) {
     if (segments == null) {
-        val needsKey = cloudProvider == null && !transcribing
+        val needsKey = needsKey && !transcribing
         ControlAction(
             title = if (transcribing) "Transcribing project" else "Transcribe project",
             detail = when {
                 transcribing -> "Cutly retries a few times, then reports the error."
-                needsKey -> "Transcripts use a cloud transcriber. Add your OpenAI or Gemini key first."
-                else -> "Uploads the audio to $cloudProvider. The transcript is saved with this project."
+                needsKey -> "Cloud transcription is selected. Add your OpenAI or Gemini key first."
+                else -> "Transcribes $engineLabel. The transcript is saved with this project."
             },
             action = when {
                 transcribing -> "CANCEL"
@@ -847,6 +890,7 @@ private fun ControlAction(
             modifier = Modifier.clip(RoundedCornerShape(7.dp))
                 .background(if (enabled) Accent else EditorTrack)
                 .clickable(enabled = enabled, onClick = onClick)
+                .semantics { role = Role.Button }
                 .padding(horizontal = 14.dp, vertical = 11.dp)
         )
     }
@@ -906,7 +950,9 @@ private fun ToolBar(selected: EditorTool, enabled: Boolean, onSelect: (EditorToo
     ) {
         EditorTool.entries.forEach { tool ->
             Column(
-                modifier = Modifier.width(88.dp).fillMaxHeight().clickable(enabled = enabled) { onSelect(tool) },
+                modifier = Modifier.width(88.dp).fillMaxHeight()
+                    .clickable(enabled = enabled) { onSelect(tool) }
+                    .semantics { role = Role.Tab },
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
@@ -937,7 +983,7 @@ private fun ToolBar(selected: EditorTool, enabled: Boolean, onSelect: (EditorToo
     }
 }
 
-private fun summary(review: CleanupViewModel.Review): String = when {
+private fun summary(review: EditorViewModel.Review): String = when {
     review.keep.isEmpty() -> "nothing kept"
     !review.hasSomethingToCut -> "original length"
     else -> "${review.cutCount} cuts • ${seconds(review.removedMs)} removed"

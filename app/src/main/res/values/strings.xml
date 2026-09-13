@@ -4,6 +4,37 @@
 
     <string name="back">Back</string>
     <string name="cancel">Cancel</string>
+    <string name="save">Save</string>
+    <string name="dismiss">Dismiss</string>
+    <string name="working">Working…</string>
+
+    <string name="projects_title">Projects</string>
+    <string name="projects_empty">No projects yet</string>
+    <string name="projects_empty_hint">Shoot a take with the camera or import a video from your phone. Every project keeps its cut, captions and transcript.</string>
+    <string name="tab_projects">Projects</string>
+    <string name="tab_camera">Camera</string>
+    <string name="tab_import">Import</string>
+    <string name="project_rename">Rename</string>
+    <string name="project_duplicate">Duplicate</string>
+    <string name="project_delete">Delete</string>
+    <string name="project_delete_confirm">Delete “%1$s”?</string>
+    <string name="project_delete_body">The copied video, cut and transcript are removed from this phone. Anything already exported to Movies/Cutly stays.</string>
+
+    <string name="settings_transcription">Transcription</string>
+    <string name="settings_transcription_help">Phone and Whisper run offline. Cloud sends the audio to the provider whose key you paste below.</string>
+    <string name="engine_phone">Phone</string>
+    <string name="engine_whisper">Whisper</string>
+    <string name="engine_cloud">Cloud</string>
+    <string name="settings_language">Language</string>
+    <string name="settings_language_none">This phone has no on-device speech recogniser</string>
+    <string name="whisper_get">Download offline Whisper (about 100 MB)</string>
+    <string name="whisper_downloading">Downloading offline model, %1$d%%</string>
+    <string name="whisper_verifying">Verifying downloaded model</string>
+    <string name="whisper_ready">Offline Whisper installed</string>
+    <string name="whisper_failed">Whisper model unavailable: %1$s</string>
+    <string name="whisper_delete">Delete model</string>
+    <string name="whisper_cancel">Cancel download</string>
+    <string name="whisper_retry">Retry download</string>
 
     <string name="settings">Settings</string>
     <string name="settings_cloud">Cloud transcription</string>

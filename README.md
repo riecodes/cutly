@@ -6,15 +6,15 @@ except the audio you explicitly ask to have transcribed.
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Three services on Android, behind one hub screen:
+A projects grid with two ways in and one editor:
 
 - **Camera** — a TikTok-style segmented video camera. Record a take as a series of clips, pause
-  between them, discard the last clip, double-tap to flip lenses, then export either every clip as
-  its own video or the whole take stitched into one.
-- **Video to text** — pick any video on the phone and get an editable, timestamped transcript back
-  in English and Tagalog.
-- **Cut** — pick any video and get the dead air taken out of it, optionally with the transcript
-  burned in as captions.
+  between them, discard the last clip, double-tap to flip lenses, then save the clips to the
+  gallery or open the merged take in the editor.
+- **Import** — pick any video on the phone; it becomes a project.
+- **Editor** — a clip timeline with the dead air detected and removed, hand trimming, a
+  transcript (on device, offline Whisper, or your own cloud key) and captions burned into the
+  export. Every project keeps its source, cut, and transcript until you delete it.
 
 ## Stack
 
@@ -34,26 +34,18 @@ Three services on Android, behind one hub screen:
 Media3 Transformer replaces FFmpeg here: it drives the device's hardware codecs, adds no native
 binaries to the APK, and can transmux without re-encoding when clip formats already match.
 
-## The hub
+## The shell
 
-`MainActivity` opens on `HomeScreen`, a card per service, and hands off to `CameraScreen` or the
-system photo picker. Only the camera is a destination — the other two services are sheets over the
-hub — so there is still nothing here a navigation library would help with, and the destination
-stays an enum in `setContent` with one `BackHandler` for back.
+`MainActivity` opens on `ProjectsScreen`: a grid of projects, with Camera and Import on a bottom
+bar and Settings behind a gear. Five destinations (projects, camera, editor, settings, licences)
+and one string argument are a `sealed interface Screen` and a list in `rememberSaveable`; a
+navigation library would add a route DSL for the same five `when` branches. Every surface is dark.
 
-The hub is deliberately the opposite surface from the rest of the app. The camera is a black tool
-that has to disappear behind the viewfinder; the hub is a warm off-white page — `#f5f5f5` canvas,
-white cards on 7%-black hairlines, one 52sp display headline at weight 800 with −4.5% tracking,
-and a single accent (the record red the app already had) used only on the card marks. All
-hierarchy comes from the size jump between the headline and everything else.
-
-Motion is hand-written: one shared expo-out curve (`EaseOut`, `cubic-bezier(.23,1,.32,1)`), a
-staggered fade-and-rise on enter, and a 0.97 scale on card press. `ValueAnimator.areAnimatorsEnabled()`
-is Android's `prefers-reduced-motion`, and it skips the reveals straight to their resting state.
-
-The display face is TikTok Sans at 800 rather than a rounded grotesk, because the family is already
-shipped and licensed here — swap `TikTokSans` in `HomeScreen` for a rounded face if the roundness
-matters more than the extra font file.
+Projects live in `filesDir/projects/<id>/` as a copied `source.mp4`, a `project.json` with the
+cut, settings and transcript, a `thumb.jpg` and a cached `levels.bin` of loudness readings.
+`ProjectStore` is the whole database: a directory per project and a JSON file per directory,
+written next to the old one and renamed over it. A merged camera take is moved, not copied, into
+its project, since cache and files share a volume.
 
 ## The core design decision
 
@@ -85,17 +77,17 @@ That single choice is what makes discard, per-clip export, and mid-take lens swi
 
 ## Transcription
 
-From the hub, **Transcribe a video** offers Android's own on-device recogniser, an optional
-multilingual Whisper tiny INT8 model run through sherpa-onnx, and Gemini when `gemini.api.key` is
-configured. The two local options stay offline; Gemini is explicit and labels that it uploads the
-extracted audio before it can be selected. The Whisper model is a roughly 99 MB opt-in download,
-resumes through Android's DownloadManager after process death, is SHA-256 verified before use, and
-can be deleted from the same control. It is not bundled in the APK.
+**Settings** chooses the engine: Android's own on-device recogniser, an optional multilingual
+Whisper tiny INT8 model run through sherpa-onnx, or the cloud with your own key. The two local
+options stay offline. The Whisper model is a roughly 99 MB opt-in download, resumes through
+Android's DownloadManager after process death, is SHA-256 verified before use, and can be deleted
+from the same screen. It is not bundled in the APK.
 
-The camera's **Transcribe to text** action and the cut sheet's **Add captions** action use a
-configured cloud backend. OpenAI is selected when `openai.api.key` exists and returns native
-`whisper-1` segment timestamps; otherwise the existing Gemini structured-timing path is used. All
-paths strip the video track into a temporary M4A and delete it when the attempt finishes.
+The editor's **Transcript** and **Captions** tools use whichever engine is chosen. With the cloud
+engine, every upload first shows a consent dialog naming the provider. OpenAI is used when its key
+exists and returns native `whisper-1` segment timestamps; otherwise Gemini's structured-timing path
+is used. All paths strip the video track into a temporary M4A and delete it when the attempt
+finishes.
 
 The speed effect is deliberately not applied to the transcription audio — a 3x take is
 unintelligible to a speech model, and the transcript is of what was said.

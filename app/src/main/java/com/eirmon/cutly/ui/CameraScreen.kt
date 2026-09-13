@@ -87,13 +87,14 @@ import com.eirmon.cutly.ui.theme.ModeLabelStyle
 import com.eirmon.cutly.ui.theme.Scrim
 import com.eirmon.cutly.ui.theme.TimerStyle
 import kotlinx.coroutines.delay
+import java.io.File
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.math.abs
 
 @Composable
-fun CameraScreen(viewModel: CameraViewModel = viewModel()) {
+fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = viewModel()) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -128,8 +129,14 @@ fun CameraScreen(viewModel: CameraViewModel = viewModel()) {
     var showSizePanel by remember { mutableStateOf(false) }
     var showSpeedPicker by remember { mutableStateOf(false) }
     var showCountdownSheet by remember { mutableStateOf(false) }
-    var pendingCloud by remember { mutableStateOf<(() -> Unit)?>(null) }
     val anyPanelOpen = showSizePanel || showSpeedPicker || showCountdownSheet
+
+    LaunchedEffect(state.takeForEditor) {
+        state.takeForEditor?.let { merged ->
+            viewModel.takeConsumed()
+            onOpenInEditor(merged)
+        }
+    }
 
     // Rebinds on first grant, on every lens switch, and on every format change. A bound
     // VideoCapture cannot survive a rebind, so the ViewModel is handed the new one each time.
@@ -492,35 +499,21 @@ fun CameraScreen(viewModel: CameraViewModel = viewModel()) {
             // take rather than the action.
             title = "${state.clips.size} clip${if (state.clips.size == 1) "" else "s"}",
             choices = listOf(
-                "Save each clip separately" to {
+                "Open in editor" to {
                     showExportDialog = false
-                    viewModel.exportSeparateClips()
+                    viewModel.openInEditor()
                 },
                 "Save as one video" to {
                     showExportDialog = false
                     viewModel.exportMerged()
                 },
-                "Transcribe to text" to {
+                "Save each clip separately" to {
                     showExportDialog = false
-                    pendingCloud = viewModel::transcribe
+                    viewModel.exportSeparateClips()
                 }
             ),
             dismissLabel = "Cancel",
             onDismiss = { showExportDialog = false }
-        )
-    }
-
-    CloudConsentGate(
-        provider = viewModel.cloudProvider(),
-        pending = pendingCloud,
-        onSettled = { pendingCloud = null }
-    )
-
-    state.transcript?.let { transcript ->
-        TranscriptDialog(
-            text = transcript,
-            onTextChange = viewModel::editTranscript,
-            onDismiss = viewModel::closeTranscript
         )
     }
 }

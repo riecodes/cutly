@@ -11,7 +11,13 @@ import java.io.File
  */
 class ClipStore(context: Context) {
 
-    private val dir = File(context.cacheDir, "clips").apply { mkdirs() }
+    // Private files, not cache: the OS may purge the cache under storage pressure, and a
+    // half-recorded take is the last thing that should go. Earlier builds used the cache.
+    private val dir = File(context.filesDir, "clips").also { dir ->
+        val legacy = File(context.cacheDir, "clips")
+        if (legacy.isDirectory && !dir.exists()) legacy.renameTo(dir)
+        dir.mkdirs()
+    }
     private val index = File(dir, "session.idx")
 
     fun newClipFile(): File = File(dir, "clip_${System.currentTimeMillis()}.mp4")

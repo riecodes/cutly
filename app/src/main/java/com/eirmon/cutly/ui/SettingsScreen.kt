@@ -36,6 +36,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -50,12 +51,19 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.shape.CircleShape
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.eirmon.cutly.BuildConfig
+import com.eirmon.cutly.SettingsViewModel
 import com.eirmon.cutly.CutlyApp
 import com.eirmon.cutly.R
 import com.eirmon.cutly.data.AppSettings
 import com.eirmon.cutly.ui.theme.Accent
+import com.eirmon.cutly.transcribe.SherpaModelState
+import com.eirmon.cutly.transcribe.TranscriptionEngine
 import com.eirmon.cutly.ui.theme.SheetMuted
+import com.eirmon.cutly.ui.theme.SheetSurface
 import com.eirmon.cutly.ui.theme.TikTokSans
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -65,12 +73,18 @@ import kotlinx.coroutines.withContext
  * every keystroke, which is the whole persistence story for two strings.
  */
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onOpenLicenses: () -> Unit) {
+fun SettingsScreen(
+    onBack: () -> Unit,
+    onOpenLicenses: () -> Unit,
+    viewModel: SettingsViewModel = viewModel()
+) {
     val context = LocalContext.current
     val settings = remember { AppSettings(context) }
+    val state by viewModel.state.collectAsStateWithLifecycle()
     var openAiKey by rememberSaveable { mutableStateOf(settings.openAiKey) }
     var geminiKey by rememberSaveable { mutableStateOf(settings.geminiKey) }
     var reveal by rememberSaveable { mutableStateOf(false) }
+    var languageSheetOpen by rememberSaveable { mutableStateOf(false) }
     val crashLog by produceState<String?>(null) {
         value = withContext(Dispatchers.IO) { CutlyApp.lastCrash(context) }
     }
@@ -84,6 +98,37 @@ fun SettingsScreen(onBack: () -> Unit, onOpenLicenses: () -> Unit) {
             .padding(horizontal = 20.dp)
     ) {
         ScreenHeader(title = stringResource(R.string.settings), onBack = onBack)
+
+        SectionLabel(stringResource(R.string.settings_transcription))
+        Text(
+            text = stringResource(R.string.settings_transcription_help),
+            color = SheetMuted,
+            fontFamily = TikTokSans,
+            fontSize = 13.sp,
+            lineHeight = 18.sp
+        )
+        Spacer(Modifier.height(12.dp))
+        EngineRow(
+            engine = state.engine,
+            modelReady = state.sherpaModel is SherpaModelState.Ready,
+            cloudReady = state.cloudProvider != null,
+            onSelect = viewModel::setEngine
+        )
+        when (state.engine) {
+            TranscriptionEngine.SYSTEM -> if (state.languages.isEmpty()) {
+                Meta(stringResource(R.string.settings_language_none))
+            } else {
+                LinkRow(
+                    "${stringResource(R.string.settings_language)}: ${state.language?.label ?: "…"}"
+                ) { languageSheetOpen = true }
+            }
+            TranscriptionEngine.SHERPA, TranscriptionEngine.CLOUD -> Unit
+        }
+        WhisperRow(
+            model = state.sherpaModel,
+            onDownload = viewModel::downloadSherpaModel,
+            onDelete = viewModel::deleteSherpaModel
+        )
 
         SectionLabel(stringResource(R.string.settings_cloud))
         Text(
@@ -101,6 +146,7 @@ fun SettingsScreen(onBack: () -> Unit, onOpenLicenses: () -> Unit) {
             onValueChange = {
                 openAiKey = it
                 settings.openAiKey = it
+                viewModel.refreshCloud()
             }
         )
         Spacer(Modifier.height(10.dp))
@@ -111,6 +157,7 @@ fun SettingsScreen(onBack: () -> Unit, onOpenLicenses: () -> Unit) {
             onValueChange = {
                 geminiKey = it
                 settings.geminiKey = it
+                viewModel.refreshCloud()
             }
         )
         TextButton(onClick = { reveal = !reveal }) {
@@ -144,6 +191,105 @@ fun SettingsScreen(onBack: () -> Unit, onOpenLicenses: () -> Unit) {
         )
         Spacer(Modifier.height(28.dp))
     }
+
+    if (languageSheetOpen) {
+        LanguageSheet(
+            languages = state.languages,
+            selected = state.language,
+            onSelect = {
+                viewModel.setLanguage(it)
+                languageSheetOpen = false
+            },
+            onDismiss = { languageSheetOpen = false }
+        )
+    }
+}
+
+@Composable
+private fun EngineRow(
+    engine: TranscriptionEngine,
+    modelReady: Boolean,
+    cloudReady: Boolean,
+    onSelect: (TranscriptionEngine) -> Boolean
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(CircleShape)
+            .background(SheetSurface)
+    ) {
+        EngineChoice(stringResource(R.string.engine_phone), engine == TranscriptionEngine.SYSTEM, true, Modifier.weight(1f)) {
+            onSelect(TranscriptionEngine.SYSTEM)
+        }
+        EngineChoice(stringResource(R.string.engine_whisper), engine == TranscriptionEngine.SHERPA, modelReady, Modifier.weight(1f)) {
+            onSelect(TranscriptionEngine.SHERPA)
+        }
+        EngineChoice(stringResource(R.string.engine_cloud), engine == TranscriptionEngine.CLOUD, cloudReady, Modifier.weight(1f)) {
+            onSelect(TranscriptionEngine.CLOUD)
+        }
+    }
+}
+
+@Composable
+private fun EngineChoice(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean,
+    modifier: Modifier,
+    onClick: () -> Unit
+) {
+    Text(
+        text = label,
+        color = when {
+            selected -> Color.White
+            enabled -> Color.White
+            else -> SheetMuted
+        },
+        fontFamily = TikTokSans,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 13.sp,
+        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        modifier = modifier
+            .clip(CircleShape)
+            .background(if (selected) Accent else Color.Transparent)
+            .clickable(enabled = enabled, onClick = onClick)
+            .semantics { role = Role.RadioButton }
+            .padding(vertical = 14.dp)
+    )
+}
+
+@Composable
+private fun WhisperRow(model: SherpaModelState, onDownload: () -> Unit, onDelete: () -> Unit) {
+    when (model) {
+        SherpaModelState.Missing -> LinkRow(stringResource(R.string.whisper_get), onClick = onDownload)
+        is SherpaModelState.Downloading -> {
+            val percent = if (model.totalBytes <= 0) 0
+            else (model.downloadedBytes * 100 / model.totalBytes).coerceIn(0, 100).toInt()
+            Meta(stringResource(R.string.whisper_downloading, percent))
+            LinkRow(stringResource(R.string.whisper_cancel), onClick = onDelete)
+        }
+        SherpaModelState.Verifying -> Meta(stringResource(R.string.whisper_verifying))
+        SherpaModelState.Ready -> {
+            Meta(stringResource(R.string.whisper_ready))
+            LinkRow(stringResource(R.string.whisper_delete), onClick = onDelete)
+        }
+        is SherpaModelState.Failed -> {
+            Meta(stringResource(R.string.whisper_failed, model.message))
+            LinkRow(stringResource(R.string.whisper_retry), onClick = onDownload)
+        }
+    }
+}
+
+@Composable
+private fun Meta(text: String) {
+    Text(
+        text = text,
+        color = SheetMuted,
+        fontFamily = TikTokSans,
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
+        modifier = Modifier.padding(vertical = 10.dp)
+    )
 }
 
 /** The licence texts bundled as an asset at build time, straight from THIRD_PARTY_LICENSES.txt. */

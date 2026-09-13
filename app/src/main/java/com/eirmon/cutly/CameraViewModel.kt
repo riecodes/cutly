@@ -7,9 +7,9 @@ import androidx.camera.video.Quality
 import androidx.camera.video.Recorder
 import androidx.camera.video.VideoCapture
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.eirmon.cutly.camera.ClipProbe
-import com.eirmon.cutly.data.AppSettings
 import com.eirmon.cutly.camera.FormatCatalog
 import com.eirmon.cutly.data.ClipStore
 import com.eirmon.cutly.export.ClipExporter
@@ -17,8 +17,6 @@ import com.eirmon.cutly.export.MediaSaver
 import com.eirmon.cutly.model.Clip
 import com.eirmon.cutly.model.VideoFormat
 import com.eirmon.cutly.record.ClipRecorder
-import com.eirmon.cutly.transcribe.CloudTranscriberFactory
-import com.eirmon.cutly.transcribe.Segment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -28,8 +26,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
-class CameraViewModel(application: Application) : AndroidViewModel(application) {
+class CameraViewModel(
+    application: Application,
+    private val handle: SavedStateHandle
+) : AndroidViewModel(application) {
 
     data class UiState(
         val clips: List<Clip> = emptyList(),
@@ -39,8 +41,8 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         val maxTakeMs: Long = DEFAULT_MAX_TAKE_MS,
         val isExporting: Boolean = false,
         val status: String? = null,
-        /** The take's transcript, non-null while the transcript sheet is open. */
-        val transcript: String? = null,
+        /** A merged take waiting to be handed to the editor; the screen consumes it. */
+        val takeForEditor: File? = null,
         /** What the user asked for. Survives lens flips even when the lens cannot deliver it. */
         val preferredFormat: VideoFormat? = null,
         /** What the currently bound lens actually gave us. */
@@ -69,9 +71,16 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     private val store = ClipStore(application)
     private val recorder = ClipRecorder(application)
     private val exporter = ClipExporter(application)
-    private val settings = AppSettings(application)
-
-    private val _state = MutableStateFlow(UiState())
+    // The few camera choices worth keeping across process death; the format is re-resolved
+    // against the lens on rebind anyway.
+    private val _state = MutableStateFlow(
+        UiState(
+            lensFacing = handle[KEY_LENS] ?: CameraSelector.LENS_FACING_BACK,
+            speed = handle[KEY_SPEED] ?: 1f,
+            timerSeconds = handle[KEY_TIMER] ?: 3,
+            flashOn = handle[KEY_FLASH] ?: false
+        )
+    )
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private var videoCapture: VideoCapture<Recorder>? = null
@@ -286,6 +295,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 }
             )
         }
+        handle[KEY_LENS] = _state.value.lensFacing
     }
 
     /**
@@ -322,10 +332,12 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
         _state.update { it.copy(flashOn = !it.flashOn) }
+        handle[KEY_FLASH] = _state.value.flashOn
     }
 
     fun setTimerSeconds(seconds: Int) {
         _state.update { it.copy(timerSeconds = seconds) }
+        handle[KEY_TIMER] = seconds
     }
 
     /** How long the clip started by the countdown is allowed to run. */
@@ -344,6 +356,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     fun setSpeed(speed: Float) {
         if (_state.value.isRecording) return
         _state.update { it.copy(speed = speed) }
+        handle[KEY_SPEED] = speed
     }
 
     /**
@@ -378,6 +391,19 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         "Saved ${clips.size} clip(s) to Movies/Cutly"
     }
 
+    /** Merges the take and hands the file to the editor, where it becomes a project. */
+    fun openInEditor() = export { clips ->
+        _state.update { it.copy(status = "Merging ${clips.size} clip(s)") }
+        val merged = exporter.merge(clips)
+        _state.update { it.copy(takeForEditor = merged) }
+        "Opening in editor…"
+    }
+
+    /** The screen has handed the merged file on; the take itself stays until cleared. */
+    fun takeConsumed() {
+        _state.update { it.copy(takeForEditor = null, status = null) }
+    }
+
     /** Exports the whole take concatenated into a single video. */
     fun exportMerged() = export { clips ->
         _state.update { it.copy(status = "Merging ${clips.size} clip(s)") }
@@ -408,61 +434,6 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     // endregion
 
-    // region transcription
-
-    /**
-     * Transcribes the whole take. Runs behind [UiState.isExporting] because it is the same kind of
-     * busy: the clip list must not change underneath a job that is reading every file in it.
-     */
-    fun transcribe() {
-        val clips = _state.value.clips
-        if (clips.isEmpty() || _state.value.isExporting || _state.value.isRecording) return
-        val transcriber = CloudTranscriberFactory.create(settings)
-        if (transcriber == null) {
-            _state.update { it.copy(status = "Add an OpenAI or Gemini key in Settings") }
-            return
-        }
-
-        _state.update { it.copy(isExporting = true, status = "Extracting audio…") }
-        viewModelScope.launch {
-            // Transformer needs the main looper; the upload moves itself off it.
-            val result = runCatching {
-                val audio = exporter.extractAudio(clips)
-                _state.update { it.copy(status = "Transcribing…") }
-                try {
-                    Segment.render(transcriber.transcribe(audio))
-                } finally {
-                    audio.delete()
-                }
-            }
-            _state.update { current ->
-                result.fold(
-                    onSuccess = { current.copy(isExporting = false, status = null, transcript = it) },
-                    onFailure = {
-                        current.copy(
-                            isExporting = false,
-                            status = "Transcribe failed: ${it.message}"
-                        )
-                    }
-                )
-            }
-        }
-    }
-
-    /** Who a transcript upload would go to, for the consent prompt. Null when no key is set. */
-    fun cloudProvider(): String? = settings.cloudProvider
-
-    /** The transcript is editable — the model gets Tagalog proper nouns wrong often enough. */
-    fun editTranscript(text: String) {
-        _state.update { if (it.transcript == null) it else it.copy(transcript = text) }
-    }
-
-    fun closeTranscript() {
-        _state.update { it.copy(transcript = null) }
-    }
-
-    // endregion
-
     fun clearStatus() {
         _state.update { it.copy(status = null) }
     }
@@ -472,6 +443,11 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         FormatCatalog.resolve(_state.value.preferredFormat, available)
 
     companion object {
+        private const val KEY_LENS = "lens"
+        private const val KEY_SPEED = "speed"
+        private const val KEY_TIMER = "timer"
+        private const val KEY_FLASH = "flash"
+
         const val DEFAULT_MAX_TAKE_MS = 60_000L
         const val MIN_CLIP_MS = 300L
 
