@@ -4,6 +4,7 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.eirmon.cutly.data.AppSettings
 import com.eirmon.cutly.export.ClipExporter
 import com.eirmon.cutly.transcribe.CloudTranscriberFactory
 import com.eirmon.cutly.transcribe.OnDeviceTranscriber
@@ -21,7 +22,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-enum class TranscriptionEngine { SYSTEM, SHERPA, GEMINI }
+enum class TranscriptionEngine { SYSTEM, SHERPA, CLOUD }
 
 /**
  * The upload service: one video off the device, one transcript back.
@@ -55,19 +56,19 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
         val engine: TranscriptionEngine = TranscriptionEngine.SYSTEM,
         /** Download/install state for the optional multilingual Whisper model. */
         val sherpaModel: SherpaModelState = SherpaModelState.Missing,
-        /** Whether this build has the local Gemini credential needed for the cloud option. */
-        val geminiConfigured: Boolean = false
+        /** Who the cloud option would upload to. Null means no key is set. */
+        val cloudProvider: String? = null
     )
 
     private val exporter = ClipExporter(application)
     private val sherpa = SherpaModelManager(application)
-    private val gemini = CloudTranscriberFactory.createGemini(BuildConfig.GEMINI_API_KEY)
+    private val settings = AppSettings(application)
     private var modelPoll: Job? = null
     private val _state = MutableStateFlow(
         UiState(
             engine = if (sherpa.isSelected()) TranscriptionEngine.SHERPA
             else TranscriptionEngine.SYSTEM,
-            geminiConfigured = gemini != null
+            cloudProvider = settings.cloudProvider
         )
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -186,16 +187,29 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
         _state.update { it.copy(engine = TranscriptionEngine.SYSTEM, error = null) }
     }
 
-    fun useGemini() {
-        if (_state.value.isBusy) return
-        if (gemini == null) {
-            _state.update {
-                it.copy(error = "No Gemini API key set. Add gemini.api.key to local.properties.")
-            }
-            return
-        }
+    /** Returns false when no key is set, so the caller can send the user to Settings instead. */
+    fun useCloud(): Boolean {
+        if (_state.value.isBusy) return true
+        if (!settings.hasCloudKey) return false
         sherpa.select(false)
-        _state.update { it.copy(engine = TranscriptionEngine.GEMINI, error = null) }
+        _state.update { it.copy(engine = TranscriptionEngine.CLOUD, error = null) }
+        return true
+    }
+
+    /** Settings is a separate screen; this picks up a key pasted there on the way back. */
+    fun refreshSettings() {
+        _state.update { current ->
+            val provider = settings.cloudProvider
+            current.copy(
+                cloudProvider = provider,
+                // A removed key takes the cloud choice with it rather than leaving a dead pill.
+                engine = if (provider == null && current.engine == TranscriptionEngine.CLOUD) {
+                    TranscriptionEngine.SYSTEM
+                } else {
+                    current.engine
+                }
+            )
+        }
     }
 
     fun transcribe(video: Uri) {
@@ -221,10 +235,9 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
                             ?: error("The offline Whisper model is not installed")
                         SherpaTranscriber(getApplication(), files)
                     }
-                    TranscriptionEngine.GEMINI ->
-                        gemini ?: error(
-                            "No Gemini API key set. Add gemini.api.key to local.properties."
-                        )
+                    TranscriptionEngine.CLOUD ->
+                        CloudTranscriberFactory.create(settings)
+                            ?: error("Add an OpenAI or Gemini key in Settings.")
                 }
                 val audio = exporter.extractAudio(video)
                 _state.update {
@@ -232,7 +245,8 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
                         status = when (current.engine) {
                             TranscriptionEngine.SYSTEM -> "Transcribing on device…"
                             TranscriptionEngine.SHERPA -> "Transcribing with offline Whisper…"
-                            TranscriptionEngine.GEMINI -> "Transcribing with Gemini…"
+                            TranscriptionEngine.CLOUD ->
+                                "Transcribing with ${settings.cloudProvider}…"
                         }
                     )
                 }

@@ -9,6 +9,7 @@ import com.eirmon.cutly.audio.SilenceDetector
 import com.eirmon.cutly.audio.SilenceSettings
 import com.eirmon.cutly.audio.Span
 import com.eirmon.cutly.camera.ClipProbe
+import com.eirmon.cutly.data.AppSettings
 import com.eirmon.cutly.export.ClipExporter
 import com.eirmon.cutly.export.CutTimeline
 import com.eirmon.cutly.export.MediaSaver
@@ -17,7 +18,6 @@ import androidx.media3.transformer.Composition
 import androidx.annotation.OptIn
 import com.eirmon.cutly.transcribe.CloudTranscriberFactory
 import com.eirmon.cutly.transcribe.Segment
-import com.eirmon.cutly.transcribe.Transcriber
 import com.eirmon.cutly.transcribe.retry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
@@ -58,6 +58,8 @@ class CleanupViewModel(application: Application) : AndroidViewModel(application)
         val error: String? = null,
         /** True when an imported source is available to resume after leaving the editor. */
         val hasProject: Boolean = false,
+        /** Who a transcript upload would go to. Null means no key is set, so cloud actions ask for one. */
+        val cloudProvider: String? = null,
         /** Non-null while the review sheet is open. */
         val review: Review? = null
     )
@@ -108,10 +110,7 @@ class CleanupViewModel(application: Application) : AndroidViewModel(application)
     )
 
     private val exporter = ClipExporter(application)
-    private val transcriber: Transcriber? = CloudTranscriberFactory.create(
-        BuildConfig.OPENAI_API_KEY,
-        BuildConfig.GEMINI_API_KEY
-    )
+    private val settings = AppSettings(application)
 
     private val projectDir = File(application.filesDir, "cut-project").apply { mkdirs() }
     private val projectSource = File(projectDir, "source.mp4")
@@ -119,7 +118,9 @@ class CleanupViewModel(application: Application) : AndroidViewModel(application)
     private val projectPrefs = application.getSharedPreferences("cut-project", 0)
     private var transcriptJob: Job? = null
 
-    private val _state = MutableStateFlow(UiState(hasProject = projectSource.exists()))
+    private val _state = MutableStateFlow(
+        UiState(hasProject = projectSource.exists(), cloudProvider = settings.cloudProvider)
+    )
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private var analysis: Analysis? = null
@@ -352,13 +353,9 @@ class CleanupViewModel(application: Application) : AndroidViewModel(application)
         val source = analysis?.source ?: return
         if (current.isBusy || review.captions != null || review.savedName != null) return
 
+        val transcriber = CloudTranscriberFactory.create(settings)
         if (transcriber == null) {
-            _state.update {
-                it.copy(
-                    error = "No cloud API key set. Add openai.api.key or gemini.api.key " +
-                        "to local.properties."
-                )
-            }
+            _state.update { it.copy(error = "Add an OpenAI or Gemini key in Settings.") }
             return
         }
 
@@ -414,6 +411,11 @@ class CleanupViewModel(application: Application) : AndroidViewModel(application)
 
     fun dismissError() {
         _state.update { it.copy(error = null) }
+    }
+
+    /** Settings is a separate screen; this picks up a key pasted there on the way back. */
+    fun refreshSettings() {
+        _state.update { it.copy(cloudProvider = settings.cloudProvider) }
     }
 
     fun closeReview() {

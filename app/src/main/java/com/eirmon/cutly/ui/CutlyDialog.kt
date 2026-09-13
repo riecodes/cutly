@@ -38,6 +38,7 @@ internal fun ConfirmDialog(
     title: String,
     confirmLabel: String,
     dismissLabel: String,
+    body: String? = null,
     destructive: Boolean = true,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
@@ -50,6 +51,19 @@ internal fun ConfirmDialog(
                 .background(DialogSurface)
         ) {
             DialogTitleText(title)
+            if (body != null) {
+                Text(
+                    text = body,
+                    color = DialogNeutral,
+                    fontFamily = TikTokSans,
+                    fontSize = 14.sp,
+                    lineHeight = 19.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 20.dp, end = 20.dp, bottom = 20.dp)
+                )
+            }
             HairLine()
             // Each action must fill the row's height, otherwise the Box wraps to the text and the
             // labels ride the top edge instead of centring in the button strip.

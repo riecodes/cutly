@@ -102,18 +102,30 @@ unintelligible to a speech model, and the transcript is of what was said.
 
 ### Setup
 
-Cloud transcription is optional. Put either personal key in `local.properties`, which is
-untracked. The Gemini key also enables the explicit Gemini choice under **Transcribe a video**;
-OpenAI takes precedence for camera transcripts and cut captions when both keys are present:
+Cloud transcription is optional and bring-your-own-key. Paste an OpenAI or Gemini key in
+**Settings** inside the app; it is stored in app-private storage, excluded from backup, and used
+only for the audio uploads you confirm. OpenAI takes precedence when both are present, because its
+`whisper-1` response carries native segment timings.
+
+For development, debug builds also read the same keys from `local.properties` (untracked), so the
+Settings screen does not have to be visited on every reinstall:
 
 ```properties
 openai.api.key=<OpenAI API key>
 gemini.api.key=<key from https://aistudio.google.com/apikey>
 ```
 
-They reach the app as BuildConfig fields. Missing keys are not a build failure; cloud-only actions
-explain what to add when used. This is a personal-use arrangement: either key ships inside the APK,
-so a keyed build must not be handed to anyone else.
+Release builds ignore `local.properties` and compile empty `BuildConfig` fields, so no build that
+leaves this machine can carry a key.
+
+### Releasing
+
+Tag `vX.Y.Z` on `main` and the `Release` workflow builds, signs and uploads the APK to the GitHub
+release page with a SHA-256 file. Signing needs four repository secrets: `KEYSTORE_BASE64`,
+`KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`. Locally, a `keystore.properties` with
+`storeFile`, `storePassword`, `keyAlias` and `keyPassword` does the same. `versionCode` is the
+commit count, `versionName` comes from the tag. The install page and privacy policy live in
+`docs/` and are served by GitHub Pages.
 
 ### Known ceilings
 

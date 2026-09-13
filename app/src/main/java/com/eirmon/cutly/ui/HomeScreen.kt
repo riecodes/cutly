@@ -31,11 +31,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -46,12 +48,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.util.UnstableApi
 import com.eirmon.cutly.CleanupViewModel
+import com.eirmon.cutly.R
 import com.eirmon.cutly.TranscribeViewModel
 import com.eirmon.cutly.TranscriptionEngine
 import com.eirmon.cutly.transcribe.SherpaModelState
@@ -68,16 +74,31 @@ import kotlinx.coroutines.delay
 @Composable
 fun HomeScreen(
     onOpenCamera: () -> Unit,
+    onOpenSettings: () -> Unit,
     viewModel: TranscribeViewModel = viewModel(),
     cleanupViewModel: CleanupViewModel = viewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val cleanup by cleanupViewModel.state.collectAsStateWithLifecycle()
     val colors = homeColors()
+    var pendingCloud by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    // Runs every time this screen enters composition, which includes coming back from Settings.
+    LaunchedEffect(Unit) {
+        viewModel.refreshSettings()
+        cleanupViewModel.refreshSettings()
+    }
 
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
-    ) { picked -> picked?.let(viewModel::transcribe) }
+    ) { picked ->
+        picked ?: return@rememberLauncherForActivityResult
+        if (viewModel.state.value.engine == TranscriptionEngine.CLOUD) {
+            pendingCloud = { viewModel.transcribe(picked) }
+        } else {
+            viewModel.transcribe(picked)
+        }
+    }
 
     // Separate launchers retain their intent while Android's picker is outside this process.
     val cutPicker = rememberLauncherForActivityResult(
@@ -101,7 +122,7 @@ fun HomeScreen(
         ) {
             Spacer(Modifier.height(18.dp))
 
-            Reveal(0) { HomeHeader(colors) }
+            Reveal(0) { HomeHeader(colors, onOpenSettings) }
 
             Spacer(Modifier.height(24.dp))
 
@@ -152,7 +173,7 @@ fun HomeScreen(
                         languages = state.languages,
                         language = state.language,
                         sherpaModel = state.sherpaModel,
-                        geminiConfigured = state.geminiConfigured,
+                        cloudProvider = state.cloudProvider,
                         enabled = !busy,
                         colors = colors,
                         onLanguage = { languageSheetOpen = true },
@@ -160,7 +181,7 @@ fun HomeScreen(
                         onWhisper = viewModel::useSherpaModel,
                         onDownload = viewModel::downloadSherpaModel,
                         onCancelOrDelete = viewModel::deleteSherpaModel,
-                        onGemini = viewModel::useGemini
+                        onCloud = { if (!viewModel.useCloud()) onOpenSettings() }
                     )
                 }
             }
@@ -256,12 +277,14 @@ fun HomeScreen(
             status = cleanup.status,
             error = cleanup.error,
             preview = preview,
+            cloudProvider = cleanup.cloudProvider,
+            onOpenSettings = onOpenSettings,
             onSettingsChange = cleanupViewModel::updateSettings,
             onClipChange = cleanupViewModel::updateClip,
             onRemoveClip = cleanupViewModel::removeClip,
-            onAddCaptions = cleanupViewModel::addCaptions,
+            onAddCaptions = { pendingCloud = cleanupViewModel::addCaptions },
             onCaptionsEnabled = cleanupViewModel::setCaptionsEnabled,
-            onTranscribe = cleanupViewModel::transcribe,
+            onTranscribe = { pendingCloud = cleanupViewModel::transcribe },
             onCancelTranscription = cleanupViewModel::cancelTranscription,
             onSave = cleanupViewModel::save,
             onDismiss = cleanupViewModel::closeReview
@@ -275,10 +298,17 @@ fun HomeScreen(
             onDismiss = viewModel::closeTranscript
         )
     }
+
+    // Composed last so its window sits above the editor's.
+    CloudConsentGate(
+        provider = state.cloudProvider ?: cleanup.cloudProvider,
+        pending = pendingCloud,
+        onSettled = { pendingCloud = null }
+    )
 }
 
 @Composable
-private fun HomeHeader(colors: HomeColors) {
+private fun HomeHeader(colors: HomeColors, onOpenSettings: () -> Unit) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             CutlyMark(colors)
@@ -289,8 +319,18 @@ private fun HomeHeader(colors: HomeColors) {
                 fontFamily = TikTokSans,
                 fontWeight = FontWeight.Bold,
                 fontSize = 30.sp,
-                letterSpacing = (-0.8).sp
+                letterSpacing = (-0.8).sp,
+                modifier = Modifier.weight(1f)
             )
+            val settingsLabel = stringResource(R.string.settings)
+            IconButton(onClick = onOpenSettings) {
+                Text(
+                    text = "⚙",
+                    color = colors.ink,
+                    fontSize = 24.sp,
+                    modifier = Modifier.semantics { contentDescription = settingsLabel }
+                )
+            }
         }
         Spacer(Modifier.height(30.dp))
         Text(
@@ -483,7 +523,7 @@ private fun TranscriptionPanel(
     languages: List<TranscriptionLanguage>,
     language: TranscriptionLanguage?,
     sherpaModel: SherpaModelState,
-    geminiConfigured: Boolean,
+    cloudProvider: String?,
     enabled: Boolean,
     colors: HomeColors,
     onLanguage: () -> Unit,
@@ -491,7 +531,7 @@ private fun TranscriptionPanel(
     onWhisper: () -> Unit,
     onDownload: () -> Unit,
     onCancelOrDelete: () -> Unit,
-    onGemini: () -> Unit
+    onCloud: () -> Unit
 ) {
     val whisperLabel = when (sherpaModel) {
         SherpaModelState.Missing -> "GET WHISPER"
@@ -541,11 +581,11 @@ private fun TranscriptionPanel(
                 modifier = Modifier.weight(1f)
             )
             EngineChoice(
-                label = if (geminiConfigured) "GEMINI" else "GEMINI / KEY",
-                selected = engine == TranscriptionEngine.GEMINI,
+                label = if (cloudProvider != null) "CLOUD" else "CLOUD / KEY",
+                selected = engine == TranscriptionEngine.CLOUD,
                 enabled = enabled,
                 colors = colors,
-                onClick = onGemini,
+                onClick = onCloud,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -569,8 +609,8 @@ private fun TranscriptionPanel(
                     colors = colors,
                     onClick = onCancelOrDelete
                 )
-                TranscriptionEngine.GEMINI -> MetaText(
-                    "CLOUD / AUTO LANGUAGE / AUDIO UPLOAD",
+                TranscriptionEngine.CLOUD -> MetaText(
+                    "${cloudProvider?.uppercase() ?: "CLOUD"} / AUTO LANGUAGE / AUDIO UPLOAD",
                     colors
                 )
             }

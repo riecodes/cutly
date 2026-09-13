@@ -42,8 +42,9 @@ gemini.api.key=<key from https://aistudio.google.com/apikey>
 openai.api.key=<OpenAI API key>
 ```
 
-A missing key is not a build failure; the app says so when you use a feature that needs it. The key
-is compiled into the APK, so **a debug build with your key in it must not be shared.**
+A missing key is not a build failure; the app says so when you use a feature that needs it. Only
+debug builds read these; release builds compile empty fields and users paste their own key in
+Settings. **A debug build with your key in it must still not be shared.**
 
 ```bash
 ./gradlew testDebugUnitTest    # unit tests

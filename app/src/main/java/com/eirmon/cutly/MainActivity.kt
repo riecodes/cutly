@@ -16,12 +16,14 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.eirmon.cutly.ui.CameraScreen
 import com.eirmon.cutly.ui.HomeScreen
+import com.eirmon.cutly.ui.LicensesScreen
+import com.eirmon.cutly.ui.SettingsScreen
 import com.eirmon.cutly.ui.theme.CutlyTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-/** Two services, so two destinations. Not enough of a graph to be worth a navigation library. */
-private enum class Service { Home, Camera }
+/** Four flat destinations. Not enough of a graph to be worth a navigation library. */
+private enum class Service { Home, Camera, Settings, Licenses }
 
 class MainActivity : ComponentActivity() {
 
@@ -46,10 +48,24 @@ class MainActivity : ComponentActivity() {
                 }
 
                 when (service) {
-                    Service.Home -> HomeScreen(onOpenCamera = { service = Service.Camera })
+                    Service.Home -> HomeScreen(
+                        onOpenCamera = { service = Service.Camera },
+                        onOpenSettings = { service = Service.Settings }
+                    )
                     Service.Camera -> {
                         BackHandler { service = Service.Home }
                         CameraScreen()
+                    }
+                    Service.Settings -> {
+                        BackHandler { service = Service.Home }
+                        SettingsScreen(
+                            onBack = { service = Service.Home },
+                            onOpenLicenses = { service = Service.Licenses }
+                        )
+                    }
+                    Service.Licenses -> {
+                        BackHandler { service = Service.Settings }
+                        LicensesScreen(onBack = { service = Service.Settings })
                     }
                 }
             }

@@ -128,6 +128,7 @@ fun CameraScreen(viewModel: CameraViewModel = viewModel()) {
     var showSizePanel by remember { mutableStateOf(false) }
     var showSpeedPicker by remember { mutableStateOf(false) }
     var showCountdownSheet by remember { mutableStateOf(false) }
+    var pendingCloud by remember { mutableStateOf<(() -> Unit)?>(null) }
     val anyPanelOpen = showSizePanel || showSpeedPicker || showCountdownSheet
 
     // Rebinds on first grant, on every lens switch, and on every format change. A bound
@@ -501,13 +502,19 @@ fun CameraScreen(viewModel: CameraViewModel = viewModel()) {
                 },
                 "Transcribe to text" to {
                     showExportDialog = false
-                    viewModel.transcribe()
+                    pendingCloud = viewModel::transcribe
                 }
             ),
             dismissLabel = "Cancel",
             onDismiss = { showExportDialog = false }
         )
     }
+
+    CloudConsentGate(
+        provider = viewModel.cloudProvider(),
+        pending = pendingCloud,
+        onSettled = { pendingCloud = null }
+    )
 
     state.transcript?.let { transcript ->
         TranscriptDialog(

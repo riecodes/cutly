@@ -16,6 +16,24 @@ val localProperties = Properties().apply {
 val geminiApiKey: String = localProperties.getProperty("gemini.api.key").orEmpty()
 val openAiApiKey: String = localProperties.getProperty("openai.api.key").orEmpty()
 
+// Release signing comes from keystore.properties (gitignored) on a developer machine, or from
+// CUTLY_* environment variables in CI. With neither, the release build is simply unsigned.
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+fun signingValue(property: String, env: String): String? =
+    keystoreProperties.getProperty(property) ?: providers.environmentVariable(env).orNull
+val releaseStoreFile = signingValue("storeFile", "CUTLY_KEYSTORE_PATH")
+
+// versionCode is the commit count on the built ref: monotonic on main, and never edited by hand.
+val gitCommitCount: Int = runCatching {
+    providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }
+        .standardOutput.asText.get().trim().toInt()
+}.getOrDefault(1)
+val releaseVersionName: String = providers.environmentVariable("CUTLY_VERSION").orNull
+    ?.removePrefix("v")?.ifBlank { null } ?: "0.1.0-dev"
+
 android {
     namespace = "com.eirmon.cutly"
     compileSdk = 37
@@ -25,8 +43,8 @@ android {
         applicationId = "com.eirmon.cutly"
         minSdk = 29
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = gitCommitCount
+        versionName = releaseVersionName
 
         // sherpa-onnx ships native libraries for four ABIs and most of the AAR's 46 MB is the
         // three nobody runs on. Every Android phone since 2019 is arm64, and the emulator images
@@ -34,11 +52,23 @@ android {
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
 
+    if (releaseStoreFile != null) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(releaseStoreFile)
+                storePassword = signingValue("storePassword", "CUTLY_STORE_PASSWORD")
+                keyAlias = signingValue("keyAlias", "CUTLY_KEY_ALIAS")
+                keyPassword = signingValue("keyPassword", "CUTLY_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.findByName("release")
             // String constants survive R8 untouched, so a key here would ship in every APK.
             // Release builds carry no key; users paste their own in Settings.
             buildConfigField("String", "GEMINI_API_KEY", "\"\"")
@@ -59,6 +89,40 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    lint {
+        abortOnError = true
+        checkReleaseBuilds = true
+        // Pre-existing findings are frozen here so lint gates new code without a cleanup first.
+        // Delete the file and re-run lintDebug to regenerate it after fixing any of them.
+        baseline = file("lint-baseline.xml")
+    }
+}
+
+/**
+ * The licence file at the repository root is the single source; it is copied into assets so the
+ * Settings screen can show it without a second copy drifting. AGP wants generated sources wired
+ * through the variant API, which needs a task with a DirectoryProperty output.
+ */
+abstract class CopyLicensesTask : DefaultTask() {
+    @get:InputFile abstract val source: RegularFileProperty
+    @get:OutputDirectory abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun copy() {
+        source.get().asFile.copyTo(outputDir.get().file("THIRD_PARTY_LICENSES.txt").asFile, overwrite = true)
+    }
+}
+
+val copyLicenses = tasks.register<CopyLicensesTask>("copyLicenses") {
+    source.set(rootProject.file("THIRD_PARTY_LICENSES.txt"))
+    outputDir.set(layout.buildDirectory.dir("generated/licenses"))
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(copyLicenses, CopyLicensesTask::outputDir)
     }
 }
 

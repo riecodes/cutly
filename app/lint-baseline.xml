@@ -1,0 +1,737 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<issues format="6" by="lint 9.3.2" type="baseline" client="gradle" dependencies="false" name="AGP (9.3.2)" variant="all" version="9.3.2">
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="            pending.withAudioEnabled()"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/record/ClipRecorder.kt"
+            line="42"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 33 (current min is 29): `android.speech.RecognizerIntent#EXTRA_AUDIO_SOURCE`"
+        errorLine1="            putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, descriptor)"
+        errorLine2="                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/OnDeviceTranscriber.kt"
+            line="221"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 33 (current min is 29): `android.speech.RecognizerIntent#EXTRA_AUDIO_SOURCE_ENCODING`"
+        errorLine1="            putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING, AudioFormat.ENCODING_PCM_16BIT)"
+        errorLine2="                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/OnDeviceTranscriber.kt"
+            line="222"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 33 (current min is 29): `android.speech.RecognizerIntent#EXTRA_AUDIO_SOURCE_SAMPLING_RATE`"
+        errorLine1="            putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, spec.sampleRate)"
+        errorLine2="                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/OnDeviceTranscriber.kt"
+            line="223"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 33 (current min is 29): `android.speech.RecognizerIntent#EXTRA_AUDIO_SOURCE_CHANNEL_COUNT`"
+        errorLine1="            putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, spec.channelCount)"
+        errorLine2="                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/OnDeviceTranscriber.kt"
+            line="224"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 33 (current min is 29): `android.speech.RecognizerIntent#EXTRA_AUDIO_SOURCE`"
+        errorLine1="            putExtra(RecognizerIntent.EXTRA_SEGMENTED_SESSION, RecognizerIntent.EXTRA_AUDIO_SOURCE)"
+        errorLine2="                                                               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/OnDeviceTranscriber.kt"
+            line="227"
+            column="64"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 33 (current min is 29): `android.speech.RecognizerIntent#EXTRA_SEGMENTED_SESSION`"
+        errorLine1="            putExtra(RecognizerIntent.EXTRA_SEGMENTED_SESSION, RecognizerIntent.EXTRA_AUDIO_SOURCE)"
+        errorLine2="                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/OnDeviceTranscriber.kt"
+            line="227"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 34 (current min is 29): `android.speech.SpeechRecognizer#RECOGNITION_PARTS`"
+        errorLine1="            getParcelableArrayList(SpeechRecognizer.RECOGNITION_PARTS, RecognitionPart::class.java)"
+        errorLine2="                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/OnDeviceTranscriber.kt"
+            line="355"
+            column="36"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 33 (current min is 29): `android.speech.RecognitionSupport#getInstalledOnDeviceLanguages`"
+        errorLine1="        val installed = support.installedOnDeviceLanguages"
+        errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/OnDeviceTranscriber.kt"
+            line="97"
+            column="33"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 33 (current min is 29): `android.speech.RecognitionSupport#getSupportedOnDeviceLanguages`"
+        errorLine1="        val supported = support.supportedOnDeviceLanguages"
+        errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/OnDeviceTranscriber.kt"
+            line="98"
+            column="33"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 33 (current min is 29): `android.speech.RecognitionSupport#getPendingOnDeviceLanguages`"
+        errorLine1="        val pending = support.pendingOnDeviceLanguages"
+        errorLine2="                              ~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/OnDeviceTranscriber.kt"
+            line="99"
+            column="31"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 31 (current min is 29): `android.speech.SpeechRecognizer#createOnDeviceSpeechRecognizer`"
+        errorLine1="        val recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)"
+        errorLine2="                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/OnDeviceTranscriber.kt"
+            line="126"
+            column="43"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 34 (current min is 29): `android.speech.SpeechRecognizer#triggerModelDownload`"
+        errorLine1="        recognizer.triggerModelDownload("
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/OnDeviceTranscriber.kt"
+            line="127"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Class requires API level 34 (current min is 29): `android.speech.ModelDownloadListener`"
+        errorLine1="            object : ModelDownloadListener {"
+        errorLine2="                     ~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/OnDeviceTranscriber.kt"
+            line="130"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Implicit cast to `ModelDownloadListener` requires API level 34 (current min is 29)"
+        errorLine1="            object : ModelDownloadListener {"
+        errorLine2="            ^">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/OnDeviceTranscriber.kt"
+            line="130"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 31 (current min is 29): `android.speech.SpeechRecognizer#createOnDeviceSpeechRecognizer`"
+        errorLine1="        val recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)"
+        errorLine2="                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/OnDeviceTranscriber.kt"
+            line="155"
+            column="43"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 31 (current min is 29): `android.speech.SpeechRecognizer#createOnDeviceSpeechRecognizer`"
+        errorLine1="                    val recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)"
+        errorLine2="                                                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/OnDeviceTranscriber.kt"
+            line="302"
+            column="55"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 33 (current min is 29): `android.speech.SpeechRecognizer#checkRecognitionSupport`"
+        errorLine1="                    recognizer.checkRecognitionSupport("
+        errorLine2="                               ~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/OnDeviceTranscriber.kt"
+            line="310"
+            column="32"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Class requires API level 33 (current min is 29): `android.speech.RecognitionSupportCallback`"
+        errorLine1="                        object : RecognitionSupportCallback {"
+        errorLine2="                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/OnDeviceTranscriber.kt"
+            line="313"
+            column="34"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Implicit cast to `RecognitionSupportCallback` requires API level 33 (current min is 29)"
+        errorLine1="                        object : RecognitionSupportCallback {"
+        errorLine2="                        ^">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/OnDeviceTranscriber.kt"
+            line="313"
+            column="25"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 33 (current min is 29): `android.os.Bundle#getParcelableArrayList`"
+        errorLine1="            getParcelableArrayList(SpeechRecognizer.RECOGNITION_PARTS, RecognitionPart::class.java)"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/OnDeviceTranscriber.kt"
+            line="355"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Class requires API level 34 (current min is 29): `android.speech.RecognitionPart`"
+        errorLine1="            getParcelableArrayList(SpeechRecognizer.RECOGNITION_PARTS, RecognitionPart::class.java)"
+        errorLine2="                                                                       ~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/OnDeviceTranscriber.kt"
+            line="355"
+            column="72"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 34 (current min is 29): `android.speech.RecognitionPart#getFormattedText`"
+        errorLine1="                .map { Word(it.timestampMillis, it.formattedText ?: it.rawText) }"
+        errorLine2="                                                   ~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/OnDeviceTranscriber.kt"
+            line="357"
+            column="52"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 34 (current min is 29): `android.speech.RecognitionPart#getRawText`"
+        errorLine1="                .map { Word(it.timestampMillis, it.formattedText ?: it.rawText) }"
+        errorLine2="                                                                       ~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/OnDeviceTranscriber.kt"
+            line="357"
+            column="72"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 34 (current min is 29): `android.speech.RecognitionPart#getTimestampMillis`"
+        errorLine1="                .map { Word(it.timestampMillis, it.formattedText ?: it.rawText) }"
+        errorLine2="                               ~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/OnDeviceTranscriber.kt"
+            line="357"
+            column="32"/>
+    </issue>
+
+    <issue
+        id="AndroidGradlePluginVersion"
+        message="A newer version of Gradle than 9.7.0 is available: 9.7.1"
+        errorLine1="distributionUrl=https\://services.gradle.org/distributions/gradle-9.7.0-bin.zip"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="../gradle/wrapper/gradle-wrapper.properties"
+            line="3"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="AndroidGradlePluginVersion"
+        message="A newer version of com.android.application than 9.3.2 is available: 9.4.0"
+        errorLine1="agp = &quot;9.3.2&quot;"
+        errorLine2="      ~~~~~~~">
+        <location
+            file="../gradle/libs.versions.toml"
+            line="2"
+            column="7"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.compose:compose-bom than 2026.06.01 is available: 2026.09.00"
+        errorLine1="composeBom = &quot;2026.06.01&quot;"
+        errorLine2="             ~~~~~~~~~~~~">
+        <location
+            file="../gradle/libs.versions.toml"
+            line="7"
+            column="14"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.camera:camera-camera2 than 1.6.1 is available: 1.6.2"
+        errorLine1="camerax = &quot;1.6.1&quot;"
+        errorLine2="          ~~~~~~~">
+        <location
+            file="../gradle/libs.versions.toml"
+            line="8"
+            column="11"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.camera:camera-compose than 1.6.1 is available: 1.6.2"
+        errorLine1="camerax = &quot;1.6.1&quot;"
+        errorLine2="          ~~~~~~~">
+        <location
+            file="../gradle/libs.versions.toml"
+            line="8"
+            column="11"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.camera:camera-core than 1.6.1 is available: 1.6.2"
+        errorLine1="camerax = &quot;1.6.1&quot;"
+        errorLine2="          ~~~~~~~">
+        <location
+            file="../gradle/libs.versions.toml"
+            line="8"
+            column="11"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.camera:camera-lifecycle than 1.6.1 is available: 1.6.2"
+        errorLine1="camerax = &quot;1.6.1&quot;"
+        errorLine2="          ~~~~~~~">
+        <location
+            file="../gradle/libs.versions.toml"
+            line="8"
+            column="11"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.camera:camera-video than 1.6.1 is available: 1.6.2"
+        errorLine1="camerax = &quot;1.6.1&quot;"
+        errorLine2="          ~~~~~~~">
+        <location
+            file="../gradle/libs.versions.toml"
+            line="8"
+            column="11"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.media3:media3-common than 1.11.0 is available: 1.11.1"
+        errorLine1="media3 = &quot;1.11.0&quot;"
+        errorLine2="         ~~~~~~~~">
+        <location
+            file="../gradle/libs.versions.toml"
+            line="9"
+            column="10"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.media3:media3-effect than 1.11.0 is available: 1.11.1"
+        errorLine1="media3 = &quot;1.11.0&quot;"
+        errorLine2="         ~~~~~~~~">
+        <location
+            file="../gradle/libs.versions.toml"
+            line="9"
+            column="10"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.media3:media3-transformer than 1.11.0 is available: 1.11.1"
+        errorLine1="media3 = &quot;1.11.0&quot;"
+        errorLine2="         ~~~~~~~~">
+        <location
+            file="../gradle/libs.versions.toml"
+            line="9"
+            column="10"/>
+    </issue>
+
+    <issue
+        id="LockedOrientationActivity"
+        message="Expecting `android:screenOrientation=&quot;unspecified&quot;` or `&quot;fullSensor&quot;` for this activity so the user can use the application in any orientation and provide a great experience on Chrome OS devices"
+        errorLine1="            android:screenOrientation=&quot;portrait&quot;"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/AndroidManifest.xml"
+            line="24"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="NewerVersionAvailable"
+        message="A newer version of org.jetbrains.kotlin.android than 2.4.10 is available: 2.4.20"
+        errorLine1="kotlin = &quot;2.4.10&quot;"
+        errorLine2="         ~~~~~~~~">
+        <location
+            file="../gradle/libs.versions.toml"
+            line="3"
+            column="10"/>
+    </issue>
+
+    <issue
+        id="NewerVersionAvailable"
+        message="A newer version of org.jetbrains.kotlin.plugin.compose than 2.4.10 is available: 2.4.20"
+        errorLine1="kotlin = &quot;2.4.10&quot;"
+        errorLine2="         ~~~~~~~~">
+        <location
+            file="../gradle/libs.versions.toml"
+            line="3"
+            column="10"/>
+    </issue>
+
+    <issue
+        id="NewerVersionAvailable"
+        message="A newer version of org.json:json than 20250517 is available: 20260814"
+        errorLine1="json = &quot;20250517&quot;"
+        errorLine2="       ~~~~~~~~~~">
+        <location
+            file="../gradle/libs.versions.toml"
+            line="11"
+            column="8"/>
+    </issue>
+
+    <issue
+        id="NewerVersionAvailable"
+        message="A newer version of org.jetbrains.kotlinx:kotlinx-coroutines-test than 1.10.2 is available: 1.11.0"
+        errorLine1="coroutinesTest = &quot;1.10.2&quot;"
+        errorLine2="                 ~~~~~~~~">
+        <location
+            file="../gradle/libs.versions.toml"
+            line="12"
+            column="18"/>
+    </issue>
+
+    <issue
+        id="RestrictedApi"
+        message="VideoCapabilities.getResolution can only be called from within the same library (androidx.camera:camera-video)"
+        errorLine1="                    capabilities.getResolution(quality, DynamicRange.SDR)"
+        errorLine2="                                 ~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/camera/FormatCatalog.kt"
+            line="56"
+            column="34"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="    preview: Composition?,"
+        errorLine2="             ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/ui/CleanupSheet.kt"
+            line="135"
+            column="14"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.ExperimentalApi` or `@OptIn(markerClass = androidx.media3.common.util.ExperimentalApi.class)`"
+        errorLine1="            builder.setSpeed(SpeedParameters(ConstantSpeed(clip.speed), false))"
+        errorLine2="                    ~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/export/ClipExporter.kt"
+            line="242"
+            column="21"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.ExperimentalApi` or `@OptIn(markerClass = androidx.media3.common.util.ExperimentalApi.class)`"
+        errorLine1="            builder.setSpeed(SpeedParameters(ConstantSpeed(clip.speed), false))"
+        errorLine2="                             ~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/export/ClipExporter.kt"
+            line="242"
+            column="30"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.ExperimentalApi` or `@OptIn(markerClass = androidx.media3.common.util.ExperimentalApi.class)`"
+        errorLine1="    val player = remember { CompositionPlayer.Builder(context).build() }"
+        errorLine2="        ~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/ui/CutPreview.kt"
+            line="67"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.ExperimentalApi` or `@OptIn(markerClass = androidx.media3.common.util.ExperimentalApi.class)`"
+        errorLine1="    val player = remember { CompositionPlayer.Builder(context).build() }"
+        errorLine2="                                              ~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/ui/CutPreview.kt"
+            line="67"
+            column="47"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.ExperimentalApi` or `@OptIn(markerClass = androidx.media3.common.util.ExperimentalApi.class)`"
+        errorLine1="    val player = remember { CompositionPlayer.Builder(context).build() }"
+        errorLine2="                                                               ~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/ui/CutPreview.kt"
+            line="67"
+            column="64"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.ExperimentalApi` or `@OptIn(markerClass = androidx.media3.common.util.ExperimentalApi.class)`"
+        errorLine1="                player.setComposition(composition)"
+        errorLine2="                       ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/ui/CutPreview.kt"
+            line="102"
+            column="24"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.ExperimentalApi` or `@OptIn(markerClass = androidx.media3.common.util.ExperimentalApi.class)`"
+        errorLine1="        player.setScrubbingModeEnabled(scrubbing)"
+        errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/ui/CutPreview.kt"
+            line="113"
+            column="16"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.ExperimentalApi` or `@OptIn(markerClass = androidx.media3.common.util.ExperimentalApi.class)`"
+        errorLine1="                            player.setVideoSurface(holder.surface, Size(width, height))"
+        errorLine2="                                   ~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/ui/CutPreview.kt"
+            line="184"
+            column="36"/>
+    </issue>
+
+    <issue
+        id="DiscouragedApi"
+        message="Fixed screen orientations will be ignored in most cases, starting from Android 16. Android is moving toward a model where apps are expected to adapt to various orientations, display sizes, and aspect ratios."
+        errorLine1="            android:screenOrientation=&quot;portrait&quot;"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/AndroidManifest.xml"
+            line="24"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="DataExtractionRules"
+        message="The attribute `android:dataExtractionRules` only applies for Android 12 and higher; since `minSdkVersion` is API 29 you should also set `android:fullBackupContent`"
+        errorLine1="        android:dataExtractionRules=&quot;@xml/data_extraction_rules&quot;"
+        errorLine2="                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/AndroidManifest.xml"
+            line="15"
+            column="38"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="This folder configuration (`v26`) is unnecessary; `minSdkVersion` is 29. Merge all the resources in this folder into `mipmap-anydpi`.">
+        <location
+            file="src/main/res/mipmap-anydpi-v26"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="        set(value) = prefs.edit().putString(KEY_OPENAI, value.trim()).apply()"
+        errorLine2="                     ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/data/AppSettings.kt"
+            line="19"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="        set(value) = prefs.edit().putString(KEY_GEMINI, value.trim()).apply()"
+        errorLine2="                     ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/data/AppSettings.kt"
+            line="23"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `Canvas.withTranslation` instead?"
+        errorLine1="        canvas.save()"
+        errorLine2="        ~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/export/CaptionOverlay.kt"
+            line="75"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="            projectPrefs.edit().clear().apply()"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/CleanupViewModel.kt"
+            line="460"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="        projectPrefs.edit()"
+        errorLine2="        ~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/CleanupViewModel.kt"
+            line="478"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `String.toUri` instead?"
+        errorLine1="            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(AppSettings.PRIVACY_URL)))"
+        errorLine2="                                                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/ui/SettingsScreen.kt"
+            line="126"
+            column="62"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `String.toUri` instead?"
+        errorLine1="            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(AppSettings.SOURCE_URL)))"
+        errorLine2="                                                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/ui/SettingsScreen.kt"
+            line="129"
+            column="62"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="        val editor = preferences.edit()"
+        errorLine2="                     ~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/SherpaModelManager.kt"
+            line="82"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `String.toUri` instead?"
+        errorLine1="            val request = DownloadManager.Request(Uri.parse(artifact.url))"
+        errorLine2="                                                  ~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/SherpaModelManager.kt"
+            line="84"
+            column="51"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="            preferences.edit().remove(FAILURE).apply()"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/SherpaModelManager.kt"
+            line="122"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="            preferences.edit()"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/SherpaModelManager.kt"
+            line="125"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="        preferences.edit().putBoolean(SELECTED, false).remove(FAILURE).apply()"
+        errorLine2="        ~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/SherpaModelManager.kt"
+            line="135"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="        preferences.edit().putBoolean(SELECTED, selected &amp;&amp; files() != null).apply()"
+        errorLine2="        ~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/eirmon/cutly/transcribe/SherpaModelManager.kt"
+            line="153"
+            column="9"/>
+    </issue>
+
+</issues>

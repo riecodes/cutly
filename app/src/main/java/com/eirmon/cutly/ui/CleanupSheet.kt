@@ -133,6 +133,8 @@ internal fun CleanupSheet(
     status: String?,
     error: String?,
     preview: Composition?,
+    cloudProvider: String?,
+    onOpenSettings: () -> Unit,
     onSettingsChange: (SilenceSettings) -> Unit,
     onClipChange: (Int, Long, Long) -> Unit,
     onRemoveClip: (Int) -> Unit,
@@ -264,14 +266,18 @@ internal fun CleanupSheet(
                     EditorTool.Captions -> CaptionControls(
                         review = review,
                         enabled = !busy && !saved,
+                        cloudProvider = cloudProvider,
                         onAdd = onAddCaptions,
+                        onOpenSettings = onOpenSettings,
                         onEnabled = onCaptionsEnabled
                     )
                     EditorTool.Transcript -> TranscriptControls(
                         segments = review.captions,
                         enabled = !busy && !saved,
                         transcribing = status?.startsWith("Transcri") == true,
+                        cloudProvider = cloudProvider,
                         onTranscribe = onTranscribe,
+                        onOpenSettings = onOpenSettings,
                         onCancel = onCancelTranscription
                     )
                 }
@@ -705,10 +711,13 @@ private fun CutControls(
 private fun CaptionControls(
     review: CleanupViewModel.Review,
     enabled: Boolean,
+    cloudProvider: String?,
     onAdd: () -> Unit,
+    onOpenSettings: () -> Unit,
     onEnabled: (Boolean) -> Unit
 ) {
     val transcript = review.captions
+    val needsKey = transcript == null && cloudProvider == null
     ControlAction(
         title = when {
             transcript == null -> "Generate captions"
@@ -716,12 +725,14 @@ private fun CaptionControls(
             else -> "Apply saved transcript"
         },
         detail = when {
-            transcript == null -> "Transcribes the project, then burns captions into the export."
+            needsKey -> "Captions use a cloud transcriber. Add your OpenAI or Gemini key first."
+            transcript == null -> "Uploads the audio to $cloudProvider, then burns captions into the export."
             transcript.isEmpty() -> "No speech was found in this project."
             review.captionsEnabled -> "${transcript.size} lines will appear in the saved video."
             else -> "${transcript.size} transcript lines are ready."
         },
         action = when {
+            needsKey -> "ADD KEY"
             transcript == null -> "GENERATE"
             review.captionsEnabled -> "REMOVE"
             else -> "APPLY"
@@ -729,6 +740,7 @@ private fun CaptionControls(
         enabled = enabled && (transcript == null || transcript.isNotEmpty()),
         onClick = {
             when {
+                needsKey -> onOpenSettings()
                 transcript == null -> onAdd()
                 review.captionsEnabled -> onEnabled(false)
                 else -> onEnabled(true)
@@ -742,17 +754,31 @@ private fun TranscriptControls(
     segments: List<Segment>?,
     enabled: Boolean,
     transcribing: Boolean,
+    cloudProvider: String?,
     onTranscribe: () -> Unit,
+    onOpenSettings: () -> Unit,
     onCancel: () -> Unit
 ) {
     if (segments == null) {
+        val needsKey = cloudProvider == null && !transcribing
         ControlAction(
             title = if (transcribing) "Transcribing project" else "Transcribe project",
-            detail = if (transcribing) "If it fails, Cutly will keep retrying until you cancel."
-            else "The transcript is saved with this project, even if you leave without copying it.",
-            action = if (transcribing) "CANCEL" else "TRANSCRIBE",
+            detail = when {
+                transcribing -> "Cutly retries a few times, then reports the error."
+                needsKey -> "Transcripts use a cloud transcriber. Add your OpenAI or Gemini key first."
+                else -> "Uploads the audio to $cloudProvider. The transcript is saved with this project."
+            },
+            action = when {
+                transcribing -> "CANCEL"
+                needsKey -> "ADD KEY"
+                else -> "TRANSCRIBE"
+            },
             enabled = if (transcribing) true else enabled,
-            onClick = if (transcribing) onCancel else onTranscribe
+            onClick = when {
+                transcribing -> onCancel
+                needsKey -> onOpenSettings
+                else -> onTranscribe
+            }
         )
     } else {
         val context = LocalContext.current

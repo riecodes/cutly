@@ -1,5 +1,7 @@
 package com.eirmon.cutly.transcribe
 
+import com.eirmon.cutly.data.AppSettings
+
 /**
  * Resolves the configured cloud backend once, so every captioning entry point behaves alike.
  *
@@ -13,7 +15,6 @@ internal object CloudTranscriberFactory {
         else -> null
     }
 
-    /** The video-to-text screen exposes Gemini explicitly instead of applying cloud precedence. */
-    fun createGemini(geminiApiKey: String): Transcriber? =
-        geminiApiKey.takeIf(String::isNotBlank)?.let(::GeminiTranscriber)
+    /** Resolved at request time, so a key pasted in Settings works without a restart. */
+    fun create(settings: AppSettings): Transcriber? = create(settings.openAiKey, settings.geminiKey)
 }

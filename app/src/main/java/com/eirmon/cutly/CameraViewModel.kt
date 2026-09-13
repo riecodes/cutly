@@ -9,6 +9,7 @@ import androidx.camera.video.VideoCapture
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.eirmon.cutly.camera.ClipProbe
+import com.eirmon.cutly.data.AppSettings
 import com.eirmon.cutly.camera.FormatCatalog
 import com.eirmon.cutly.data.ClipStore
 import com.eirmon.cutly.export.ClipExporter
@@ -18,7 +19,6 @@ import com.eirmon.cutly.model.VideoFormat
 import com.eirmon.cutly.record.ClipRecorder
 import com.eirmon.cutly.transcribe.CloudTranscriberFactory
 import com.eirmon.cutly.transcribe.Segment
-import com.eirmon.cutly.transcribe.Transcriber
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -69,10 +69,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     private val store = ClipStore(application)
     private val recorder = ClipRecorder(application)
     private val exporter = ClipExporter(application)
-    private val transcriber: Transcriber? = CloudTranscriberFactory.create(
-        BuildConfig.OPENAI_API_KEY,
-        BuildConfig.GEMINI_API_KEY
-    )
+    private val settings = AppSettings(application)
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -420,10 +417,9 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     fun transcribe() {
         val clips = _state.value.clips
         if (clips.isEmpty() || _state.value.isExporting || _state.value.isRecording) return
+        val transcriber = CloudTranscriberFactory.create(settings)
         if (transcriber == null) {
-            _state.update {
-                it.copy(status = "Set openai.api.key or gemini.api.key in local.properties")
-            }
+            _state.update { it.copy(status = "Add an OpenAI or Gemini key in Settings") }
             return
         }
 
@@ -452,6 +448,9 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
     }
+
+    /** Who a transcript upload would go to, for the consent prompt. Null when no key is set. */
+    fun cloudProvider(): String? = settings.cloudProvider
 
     /** The transcript is editable — the model gets Tagalog proper nouns wrong often enough. */
     fun editTranscript(text: String) {
