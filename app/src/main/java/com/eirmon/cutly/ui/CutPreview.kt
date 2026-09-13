@@ -24,23 +24,29 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.Player
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.common.util.Size
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.CompositionPlayer
 import com.eirmon.cutly.ui.theme.TikTokSans
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 
 internal data class PreviewSeek(val positionMs: Long, val id: Int)
 
@@ -49,8 +55,12 @@ internal data class PreviewSeek(val positionMs: Long, val id: Int)
  *
  * `CompositionPlayer` takes the same [Composition] the export does, so this is not a second
  * rendering path that can drift: the cuts, captions and scaling are whatever the saved file will
- * have. That is the whole reason the preview is worth having — a preview built another way would
+ * have. That is the whole reason the preview is worth having; a preview built another way would
  * need its own bugs found.
+ *
+ * Position reaches the caller two ways: the player's own discontinuity callbacks, and a poll that
+ * runs only while playing. A paused player is never polled, which is what lets a seek's optimistic
+ * position stand instead of being overwritten by a stale read a few frames later.
  *
  * @param composition the current cut, or null when there is nothing to play.
  */
@@ -78,6 +88,15 @@ internal fun CutPreview(
 
             override fun onPlaybackStateChanged(state: Int) {
                 playbackState = state
+                if (state == Player.STATE_ENDED) currentPositionCallback(player.currentPosition)
+            }
+
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int
+            ) {
+                currentPositionCallback(newPosition.positionMs)
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -93,6 +112,7 @@ internal fun CutPreview(
 
     // Reloading whenever the composition object changes is what makes the preview follow the
     // sliders. Keyed on the object, so a moved slider reloads and a bare recomposition does not.
+    // The caller re-sends the playhead as a seek after every edit, so no position is kept here.
     LaunchedEffect(composition) {
         player.stop()
         playbackState = Player.STATE_IDLE
@@ -114,28 +134,31 @@ internal fun CutPreview(
     }
 
     LaunchedEffect(seek, composition) {
-        if (seek != null) {
-            // A request can arrive while a new composition is still preparing. Wait for that one
-            // request to become seekable; keying this effect on playbackState would resend the
-            // same seek after every BUFFERING -> READY transition and prevent playback forever.
-            while (playbackState != Player.STATE_READY &&
-                playbackState != Player.STATE_ENDED &&
-                previewError == null
-            ) {
-                delay(SEEK_READY_POLL_MS)
-            }
+        if (seek == null || composition == null) return@LaunchedEffect
+        // A request can arrive while a new composition is still preparing. Wait for that one
+        // request to become seekable, but not forever: a player parked in BUFFERING with no error
+        // is a preview that did not load, and the timeline must not hang on it.
+        val settled = withTimeoutOrNull(SEEK_READY_TIMEOUT_MS) {
+            snapshotFlow { playbackState to previewError }
+                .first { (state, error) ->
+                    state == Player.STATE_READY || state == Player.STATE_ENDED || error != null
+                }
         }
-        if (seek != null && previewError == null) {
-            player.pause()
-            if (kotlin.math.abs(player.currentPosition - seek.positionMs) > SEEK_TOLERANCE_MS) {
-                player.seekTo(seek.positionMs)
-            }
-            currentPositionCallback(seek.positionMs)
+        if (settled == null) {
+            previewError = "Preview did not load"
+            return@LaunchedEffect
         }
+        if (previewError != null) return@LaunchedEffect
+        player.pause()
+        if (kotlin.math.abs(player.currentPosition - seek.positionMs) > SEEK_TOLERANCE_MS) {
+            player.seekTo(seek.positionMs)
+        }
+        currentPositionCallback(seek.positionMs)
     }
 
-    LaunchedEffect(player) {
-        while (true) {
+    // The only poll, and it runs only while frames are actually advancing.
+    LaunchedEffect(playing) {
+        while (playing) {
             currentPositionCallback(player.currentPosition)
             delay(POSITION_POLL_MS)
         }
@@ -144,6 +167,26 @@ internal fun CutPreview(
     val ready =
         (playbackState == Player.STATE_READY || playbackState == Player.STATE_ENDED) &&
         previewError == null
+
+    val surfaceCallback = remember {
+        object : SurfaceHolder.Callback {
+            override fun surfaceCreated(holder: SurfaceHolder) = Unit
+
+            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                // The player needs the surface *and* its size: it renders at whatever size it is
+                // told rather than measuring the surface itself.
+                player.setVideoSurface(holder.surface, Size(width, height))
+            }
+
+            override fun surfaceDestroyed(holder: SurfaceHolder) {
+                // CompositionPlayer checks that the surface being cleared is the same object that
+                // was attached. The no-argument overload clears `null` and fails that check,
+                // leaving the next preview without a usable surface.
+                player.pause()
+                player.clearVideoSurface(holder.surface)
+            }
+        }
+    }
 
     Box(
         modifier = modifier
@@ -163,37 +206,14 @@ internal fun CutPreview(
                     if (playbackState == Player.STATE_ENDED) player.seekTo(0L)
                     player.play()
                 }
-            },
+            }
+            .semantics { role = Role.Button },
         contentAlignment = Alignment.Center
     ) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
-            factory = { viewContext ->
-                SurfaceView(viewContext).apply {
-                    holder.addCallback(object : SurfaceHolder.Callback {
-                        override fun surfaceCreated(holder: SurfaceHolder) = Unit
-
-                        override fun surfaceChanged(
-                            holder: SurfaceHolder,
-                            format: Int,
-                            width: Int,
-                            height: Int
-                        ) {
-                            // The player needs the surface *and* its size: it renders at whatever
-                            // size it is told rather than measuring the surface itself.
-                            player.setVideoSurface(holder.surface, Size(width, height))
-                        }
-
-                        override fun surfaceDestroyed(holder: SurfaceHolder) {
-                            // CompositionPlayer checks that the surface being cleared is the same
-                            // object that was attached. The no-argument overload clears `null` and
-                            // fails that check, leaving the next preview without a usable surface.
-                            player.pause()
-                            player.clearVideoSurface(holder.surface)
-                        }
-                    })
-                }
-            }
+            factory = { viewContext -> SurfaceView(viewContext).apply { holder.addCallback(surfaceCallback) } },
+            onRelease = { view -> view.holder.removeCallback(surfaceCallback) }
         )
 
         when {
@@ -227,10 +247,10 @@ internal fun CutPreview(
 }
 
 private const val POSITION_POLL_MS = 50L
-private const val SEEK_READY_POLL_MS = 20L
+private const val SEEK_READY_TIMEOUT_MS = 5_000L
 private const val SEEK_TOLERANCE_MS = 25L
 
-/** Replaces the player while editing or exporting, so no decoder competes for codec memory. */
+/** Replaces the player while exporting or transcribing, so no decoder competes for codec memory. */
 @Composable
 internal fun CutPreviewLoading(message: String, modifier: Modifier = Modifier) {
     Box(

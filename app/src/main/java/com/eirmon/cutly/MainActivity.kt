@@ -11,7 +11,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshots.SnapshotStateList
@@ -154,15 +153,16 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 if (review != null) {
-                    // Slider drafts commit only on release, so this rebuilds once per edit.
-                    val preview = remember(review.keep, review.captions, review.captionsEnabled) {
-                        editor.previewComposition()
-                    }
                     EditorScreen(
                         review = review,
                         status = state.status,
                         error = state.error,
-                        preview = preview,
+                        buildPreview = editor::previewComposition,
+                        canUndo = state.canUndo,
+                        canRedo = state.canRedo,
+                        onUndo = editor::undo,
+                        onRedo = editor::redo,
+                        onSplit = editor::splitAtPlayhead,
                         engineLabel = state.engineLabel,
                         needsKey = state.needsKey,
                         uploads = state.uploads,

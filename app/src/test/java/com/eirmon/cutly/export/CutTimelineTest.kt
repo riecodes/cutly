@@ -39,6 +39,25 @@ class CutTimelineTest {
     }
 
     @Test
+    fun `split cuts the clip under a source instant in two`() {
+        val keep = listOf(Span(0, 1_000), Span(2_000, 3_000))
+
+        assertEquals(
+            listOf(Span(0, 1_000), Span(2_000, 2_400), Span(2_400, 3_000)),
+            CutTimeline.split(keep, 2_400)
+        )
+    }
+
+    @Test
+    fun `split refuses a gap, an edge, and a sliver`() {
+        val keep = listOf(Span(0, 1_000), Span(2_000, 3_000))
+
+        assertEquals(keep, CutTimeline.split(keep, 1_500))
+        assertEquals(keep, CutTimeline.split(keep, 2_000))
+        assertEquals(keep, CutTimeline.split(keep, 2_950))
+    }
+
+    @Test
     fun `output playhead maps through removed source gaps`() {
         val keep = listOf(Span(0, 1_000), Span(2_000, 3_500), Span(8_000, 9_000))
 

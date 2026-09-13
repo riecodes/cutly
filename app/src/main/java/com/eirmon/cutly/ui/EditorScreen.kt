@@ -50,6 +50,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -75,11 +76,13 @@ import com.eirmon.cutly.EditorViewModel
 import com.eirmon.cutly.audio.SilenceSettings
 import com.eirmon.cutly.audio.Span
 import com.eirmon.cutly.export.CutTimeline
+import com.eirmon.cutly.export.TimeMap
 import com.eirmon.cutly.transcribe.Segment
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import com.eirmon.cutly.ui.theme.Accent
+import com.eirmon.cutly.ui.theme.AccentPressed
 import com.eirmon.cutly.ui.theme.EditorFaint
 import com.eirmon.cutly.ui.theme.EditorLine
 import com.eirmon.cutly.ui.theme.EditorMuted
@@ -88,11 +91,14 @@ import com.eirmon.cutly.ui.theme.EditorSurface
 import com.eirmon.cutly.ui.theme.EditorTrack
 import com.eirmon.cutly.ui.theme.TikTokSans
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 private const val NO_CLIP_SELECTED = -1
+private const val PREVIEW_DEBOUNCE_MS = 150L
 
 private enum class EditorTool(val label: String, val mark: String) {
     Clips("Clips", "▤"), Cut("Cut", "✂"), Captions("Captions", "CC"), Transcript("Transcript", "T")
@@ -135,7 +141,12 @@ internal fun EditorScreen(
     review: EditorViewModel.Review,
     status: String?,
     error: String?,
-    preview: Composition?,
+    buildPreview: () -> Composition?,
+    canUndo: Boolean,
+    canRedo: Boolean,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+    onSplit: (outputMs: Long) -> Unit,
     engineLabel: String,
     needsKey: Boolean,
     uploads: Boolean,
@@ -155,8 +166,8 @@ internal fun EditorScreen(
     val saved = review.savedName != null
     var tool by rememberSaveable { mutableStateOf(EditorTool.Clips) }
     var selectedClip by rememberSaveable { mutableIntStateOf(NO_CLIP_SELECTED) }
-    var editing by remember { mutableStateOf(false) }
     var saveRequested by remember { mutableStateOf(false) }
+    var preview by remember { mutableStateOf<Composition?>(null) }
     var playheadMs by remember { mutableLongStateOf(0L) }
     var seekId by remember { mutableIntStateOf(0) }
     var seek by remember { mutableStateOf<PreviewSeek?>(null) }
@@ -171,7 +182,12 @@ internal fun EditorScreen(
         playheadMs = playheadMs.coerceIn(0L, review.keptMs.coerceAtLeast(0L))
         seek = PreviewSeek(playheadMs, ++seekId)
     }
-    LaunchedEffect(busy) { if (busy) editing = false }
+    // Building the composition allocates every clipped item; a short debounce folds a burst of
+    // edits into one rebuild while the player stays mounted and keeps its frame.
+    LaunchedEffect(review.keep, review.captions, review.captionsEnabled) {
+        delay(PREVIEW_DEBOUNCE_MS)
+        preview = buildPreview()
+    }
     LaunchedEffect(saveRequested) {
         if (saveRequested) {
             onSave()
@@ -190,6 +206,10 @@ internal fun EditorScreen(
         EditorHeader(
             title = if (saved) "Saved to Movies/Cutly" else review.name,
             canSave = review.canSave && !busy,
+            canUndo = canUndo && !busy && !saved,
+            canRedo = canRedo && !busy && !saved,
+            onUndo = onUndo,
+            onRedo = onRedo,
             onBack = { if (!busy) onDismiss() },
             onSave = { if (review.canSave && !busy) saveRequested = true }
         )
@@ -201,7 +221,7 @@ internal fun EditorScreen(
                 .padding(horizontal = 60.dp, vertical = 8.dp),
             contentAlignment = Alignment.Center
         ) {
-            if (busy || editing) {
+            if (busy) {
                 CutPreviewLoading(
                     message = status ?: if (saveRequested) "Preparing export…" else "Updating preview…",
                     modifier = Modifier.fillMaxHeight()
@@ -235,7 +255,6 @@ internal fun EditorScreen(
             playheadMs = playheadMs,
             selected = selectedClip,
             enabled = !busy && !saved,
-            onEditingChange = { editing = it },
             onClipChange = onClipChange,
             onSelect = {
                 tool = EditorTool.Clips
@@ -261,13 +280,13 @@ internal fun EditorScreen(
                     clips = review.keep,
                     selected = selectedClip,
                     enabled = !busy && !saved,
+                    onSplit = { onSplit(playheadMs) },
                     onRemove = onRemoveClip
                 )
                 EditorTool.Cut -> CutControls(
                     settings = review.settings,
                     manualEdits = review.manualEdits,
                     enabled = !busy && !saved,
-                    onEditingChange = { editing = it },
                     onSettingsChange = onSettingsChange,
                     onRedetect = onRedetect
                 )
@@ -311,7 +330,16 @@ internal fun EditorScreen(
 }
 
 @Composable
-private fun EditorHeader(title: String, canSave: Boolean, onBack: () -> Unit, onSave: () -> Unit) {
+private fun EditorHeader(
+    title: String,
+    canSave: Boolean,
+    canUndo: Boolean,
+    canRedo: Boolean,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+    onBack: () -> Unit,
+    onSave: () -> Unit
+) {
     val saved = title.startsWith("Saved")
     Row(
         modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 12.dp),
@@ -329,6 +357,8 @@ private fun EditorHeader(title: String, canSave: Boolean, onBack: () -> Unit, on
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)
         )
+        HeaderAction("↶", if (canUndo) Color.White else EditorFaint, onUndo, width = 44.dp)
+        HeaderAction("↷", if (canRedo) Color.White else EditorFaint, onRedo, width = 44.dp)
         HeaderAction(
             text = if (saved) "DONE" else "EXPORT",
             color = if (saved || canSave) Accent else EditorFaint,
@@ -338,10 +368,15 @@ private fun EditorHeader(title: String, canSave: Boolean, onBack: () -> Unit, on
 }
 
 @Composable
-private fun HeaderAction(text: String, color: Color, onClick: () -> Unit) {
+private fun HeaderAction(
+    text: String,
+    color: Color,
+    onClick: () -> Unit,
+    width: androidx.compose.ui.unit.Dp = 70.dp
+) {
     Box(
         modifier = Modifier
-            .width(70.dp)
+            .width(width)
             .height(48.dp)
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick)
             .semantics { role = Role.Button },
@@ -352,7 +387,11 @@ private fun HeaderAction(text: String, color: Color, onClick: () -> Unit) {
             color = color,
             fontFamily = TikTokSans,
             fontWeight = FontWeight.Bold,
-            fontSize = if (text == "‹") 32.sp else 11.sp
+            fontSize = when (text) {
+                "‹" -> 32.sp
+                "↶", "↷" -> 22.sp
+                else -> 11.sp
+            }
         )
     }
 }
@@ -371,7 +410,7 @@ private fun TimelineHeader(review: EditorViewModel.Review, playheadMs: Long) {
             fontSize = 10.sp
         )
         Text(
-            text = "${timecode(playheadMs)} / ${timecode(review.keptMs)}",
+            text = "OUT ${timecode(playheadMs)} / ${timecode(review.keptMs)}",
             color = Color.White,
             fontFamily = TikTokSans,
             fontWeight = FontWeight.SemiBold,
@@ -414,16 +453,14 @@ private fun ClipTimeline(
     playheadMs: Long,
     selected: Int,
     enabled: Boolean,
-    onEditingChange: (Boolean) -> Unit,
     onClipChange: (Int, Long, Long) -> Unit,
     onSelect: (Int) -> Unit
 ) {
     val frames by videoFrames(source, clips)
     val listState = rememberLazyListState()
-    val activeClip = remember(clips, playheadMs) {
-        if (clips.isEmpty()) NO_CLIP_SELECTED
-        else CutTimeline.clipAtOutputPosition(clips, playheadMs)
-    }
+    val map = remember(clips) { TimeMap(clips) }
+    // A binary search per playhead tick, so no remember is needed to keep this cheap.
+    val activeClip = if (clips.isEmpty()) NO_CLIP_SELECTED else map.clipAt(playheadMs)
 
     // Only scroll when the caret crosses a clip boundary. Moving the list every 50 ms would fight
     // a user's manual swipe and make playback visibly jitter.
@@ -438,6 +475,10 @@ private fun ClipTimeline(
         horizontalArrangement = Arrangement.spacedBy(3.dp)
     ) {
         itemsIndexed(clips, key = { index, _ -> index }) { index, span ->
+            // The draft is what the handles are dragging; it becomes the span on release. Keeping
+            // it here lets the box and its label follow the drag instead of freezing until commit.
+            var draft by remember(span) { mutableStateOf(span) }
+            var dragging by remember { mutableStateOf(false) }
             val width = (72 + (span.durationMs / 1000f * 9f)).coerceIn(72f, 156f).dp
             var widthPx by remember { mutableIntStateOf(1) }
             Box(
@@ -449,10 +490,15 @@ private fun ClipTimeline(
                     .background(EditorTrack)
                     .border(
                         if (index == selected) 2.dp else 1.dp,
-                        if (index == selected) Accent else EditorLine,
+                        when {
+                            dragging -> AccentPressed
+                            index == selected -> Accent
+                            else -> EditorLine
+                        },
                         RoundedCornerShape(3.dp)
                     )
                     .clickable { onSelect(index) }
+                    .semantics { role = Role.Button }
             ) {
                 frames.getOrNull(index)?.let { frame ->
                     Image(
@@ -463,7 +509,7 @@ private fun ClipTimeline(
                     )
                 }
                 Text(
-                    text = "${index + 1}  ${seconds(span.durationMs)}",
+                    text = "${index + 1}  ${seconds(draft.durationMs)}",
                     color = Color.White,
                     fontFamily = TikTokSans,
                     fontWeight = FontWeight.SemiBold,
@@ -475,30 +521,34 @@ private fun ClipTimeline(
                     val before = clips.getOrNull(index - 1)?.endMs ?: 0L
                     val after = clips.getOrNull(index + 1)?.startMs ?: totalMs
                     TrimHandle(
-                        span = span,
+                        draft = draft,
                         beforeMs = before,
                         afterMs = after,
                         widthPx = widthPx,
                         start = true,
                         enabled = enabled,
-                        onEditingChange = onEditingChange,
-                        onCommit = { start, end -> onClipChange(index, start, end) },
+                        dragging = dragging,
+                        onDraft = { draft = it },
+                        onDragging = { dragging = it },
+                        onCommit = { onClipChange(index, draft.startMs, draft.endMs) },
                         modifier = Modifier.align(Alignment.CenterStart)
                     )
                     TrimHandle(
-                        span = span,
+                        draft = draft,
                         beforeMs = before,
                         afterMs = after,
                         widthPx = widthPx,
                         start = false,
                         enabled = enabled,
-                        onEditingChange = onEditingChange,
-                        onCommit = { start, end -> onClipChange(index, start, end) },
+                        dragging = dragging,
+                        onDraft = { draft = it },
+                        onDragging = { dragging = it },
+                        onCommit = { onClipChange(index, draft.startMs, draft.endMs) },
                         modifier = Modifier.align(Alignment.CenterEnd)
                     )
                 }
                 if (index == activeClip) {
-                    val outputStart = CutTimeline.outputStartMs(clips, index)
+                    val outputStart = map.outputStart(index)
                     val progress = ((playheadMs - outputStart).toFloat() / span.durationMs)
                         .coerceIn(0f, 1f)
                     TimelineCaret(
@@ -538,52 +588,55 @@ private fun TimelineCaret(modifier: Modifier = Modifier) {
 
 @Composable
 private fun TrimHandle(
-    span: Span,
+    draft: Span,
     beforeMs: Long,
     afterMs: Long,
     widthPx: Int,
     start: Boolean,
     enabled: Boolean,
-    onEditingChange: (Boolean) -> Unit,
-    onCommit: (Long, Long) -> Unit,
+    dragging: Boolean,
+    onDraft: (Span) -> Unit,
+    onDragging: (Boolean) -> Unit,
+    onCommit: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var draftStart by remember(span) { mutableLongStateOf(span.startMs) }
-    var draftEnd by remember(span) { mutableLongStateOf(span.endMs) }
     val minimum = minOf(100L, afterMs - beforeMs).coerceAtLeast(1L)
+    val current by rememberUpdatedState(draft)
 
     Box(
         modifier = modifier
             .width(20.dp)
             .fillMaxHeight()
-            .background(if (enabled) Accent else EditorFaint)
-            .pointerInput(span, beforeMs, afterMs, widthPx, enabled, start) {
+            .background(
+                when {
+                    !enabled -> EditorFaint
+                    dragging -> AccentPressed
+                    else -> Accent
+                }
+            )
+            .pointerInput(beforeMs, afterMs, widthPx, enabled, start) {
                 detectHorizontalDragGestures(
-                    onDragStart = {
-                        if (enabled) {
-                            draftStart = span.startMs
-                            draftEnd = span.endMs
-                            onEditingChange(true)
-                        }
-                    },
+                    onDragStart = { if (enabled) onDragging(true) },
                     onDragEnd = {
                         if (enabled) {
-                            onCommit(draftStart, draftEnd)
-                            onEditingChange(false)
+                            onDragging(false)
+                            onCommit()
                         }
                     },
-                    onDragCancel = { if (enabled) onEditingChange(false) }
+                    onDragCancel = { if (enabled) onDragging(false) }
                 ) { change, dragAmount ->
                     if (enabled) {
                         change.consume()
+                        val span = current
+                        // Pixels map to the committed span's width, so the scale is stable mid-drag.
                         val deltaMs = (dragAmount * span.durationMs / widthPx).roundToLong()
-                        if (start) {
-                            draftStart = (draftStart + deltaMs)
-                                .coerceIn(beforeMs, draftEnd - minimum)
-                        } else {
-                            draftEnd = (draftEnd + deltaMs)
-                                .coerceIn(draftStart + minimum, afterMs)
-                        }
+                        onDraft(
+                            if (start) {
+                                span.copy(startMs = (span.startMs + deltaMs).coerceIn(beforeMs, span.endMs - minimum))
+                            } else {
+                                span.copy(endMs = (span.endMs + deltaMs).coerceIn(span.startMs + minimum, afterMs))
+                            }
+                        )
                     }
                 }
             },
@@ -614,20 +667,29 @@ private fun TrimHandle(
 @Composable
 private fun videoFrames(source: Uri, clips: List<Span>): androidx.compose.runtime.State<List<ImageBitmap?>> {
     val context = LocalContext.current.applicationContext
+    // Keyed by the frame's source time, so a trimmed neighbour does not re-decode every clip.
+    val cache = remember(source) { mutableMapOf<Long, ImageBitmap?>() }
     return produceState(initialValue = emptyList(), source, clips) {
         value = withContext(Dispatchers.IO) {
             val retriever = MediaMetadataRetriever()
             try {
                 retriever.setDataSource(context, source)
                 clips.map { span ->
-                    runCatching {
-                        retriever.getScaledFrameAtTime(
-                            ((span.startMs + span.endMs) / 2) * 1_000,
-                            MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                            180,
-                            100
-                        )?.asImageBitmap()
-                    }.getOrNull()
+                    val midMs = (span.startMs + span.endMs) / 2
+                    cache.getOrPut(midMs) {
+                        runCatching {
+                            retriever.getScaledFrameAtTime(
+                                midMs * 1_000,
+                                MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                                180,
+                                100
+                            )?.asImageBitmap()
+                        }.getOrNull()
+                    }.also {
+                        // A superseded edit cancels this producer; without a suspension point it
+                        // would still decode every remaining frame before noticing.
+                        yield()
+                    }
                 }
             } finally {
                 retriever.release()
@@ -641,6 +703,7 @@ private fun ClipControls(
     clips: List<Span>,
     selected: Int,
     enabled: Boolean,
+    onSplit: () -> Unit,
     onRemove: (Int) -> Unit
 ) {
     val clip = clips.getOrNull(selected)
@@ -660,11 +723,23 @@ private fun ClipControls(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                "CLIP ${selected + 1}  •  ${timecode(clip.startMs)}–${timecode(clip.endMs)}",
+                "CLIP ${selected + 1}  •  SOURCE ${timecode(clip.startMs)}–${timecode(clip.endMs)}",
                 color = Color.White,
                 fontFamily = TikTokSans,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 11.sp
+                fontSize = 11.sp,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                "SPLIT",
+                color = if (enabled) Accent else EditorFaint,
+                fontFamily = TikTokSans,
+                fontWeight = FontWeight.Bold,
+                fontSize = 10.sp,
+                modifier = Modifier
+                    .clickable(enabled = enabled, onClick = onSplit)
+                    .semantics { role = Role.Button }
+                    .padding(8.dp)
             )
             Text(
                 "DELETE",
@@ -672,12 +747,15 @@ private fun ClipControls(
                 fontFamily = TikTokSans,
                 fontWeight = FontWeight.Bold,
                 fontSize = 10.sp,
-                modifier = Modifier.clickable(enabled = enabled) { onRemove(selected) }.padding(8.dp)
+                modifier = Modifier
+                    .clickable(enabled = enabled) { onRemove(selected) }
+                    .semantics { role = Role.Button }
+                    .padding(8.dp)
             )
         }
         Spacer(Modifier.height(13.dp))
         Text(
-            text = "Drag the edge handles on the selected clip to trim its start and end.",
+            text = "Drag the edge handles to trim. Split cuts the clip at the white caret.",
             color = EditorMuted,
             fontFamily = TikTokSans,
             fontSize = 12.sp,
@@ -699,7 +777,6 @@ private fun CutControls(
     settings: SilenceSettings,
     manualEdits: Boolean,
     enabled: Boolean,
-    onEditingChange: (Boolean) -> Unit,
     onSettingsChange: (SilenceSettings) -> Unit,
     onRedetect: () -> Unit
 ) {
@@ -735,15 +812,15 @@ private fun CutControls(
         }
         CompactKnob(
             "Silence threshold", settings.thresholdDb, -70f..-15f, enabled,
-            { "${it.roundToInt()} dB" }, onEditingChange
+            { "${it.roundToInt()} dB" }
         ) { onSettingsChange(settings.copy(thresholdDb = it)) }
         CompactKnob(
             "Shortest pause", settings.minSilenceMs.toFloat(), 100f..1500f, enabled,
-            { "${it.roundToInt()} ms" }, onEditingChange
+            { "${it.roundToInt()} ms" }
         ) { onSettingsChange(settings.copy(minSilenceMs = it.roundToInt().toLong())) }
         CompactKnob(
             "Breathing room", settings.padMs.toFloat(), 0f..300f, enabled,
-            { "${it.roundToInt()} ms" }, onEditingChange
+            { "${it.roundToInt()} ms" }
         ) { onSettingsChange(settings.copy(padMs = it.roundToInt().toLong())) }
     }
 }
@@ -825,7 +902,7 @@ private fun TranscriptControls(
         )
     } else {
         val context = LocalContext.current
-        val transcript = Segment.render(segments)
+        val transcript = remember(segments) { Segment.render(segments) }
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -910,7 +987,6 @@ private fun CompactKnob(
     range: ClosedFloatingPointRange<Float>,
     enabled: Boolean,
     value: (Float) -> String,
-    onEditingChange: (Boolean) -> Unit,
     onCommit: (Float) -> Unit
 ) {
     var draft by remember(position) { mutableFloatStateOf(position) }
@@ -921,14 +997,8 @@ private fun CompactKnob(
         }
         Slider(
             value = draft.coerceIn(range.start, range.endInclusive),
-            onValueChange = {
-                draft = it
-                onEditingChange(true)
-            },
-            onValueChangeFinished = {
-                onCommit(draft)
-                onEditingChange(false)
-            },
+            onValueChange = { draft = it },
+            onValueChangeFinished = { onCommit(draft) },
             enabled = enabled,
             valueRange = range,
             modifier = Modifier.height(30.dp),

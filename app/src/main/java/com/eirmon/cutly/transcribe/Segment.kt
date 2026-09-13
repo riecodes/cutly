@@ -1,6 +1,7 @@
 package com.eirmon.cutly.transcribe
 
 import com.eirmon.cutly.audio.Span
+import com.eirmon.cutly.export.TimeMap
 
 /**
  * One line of the transcript, with the stretch of audio it was said in.
@@ -29,31 +30,14 @@ data class Segment(val startMs: Long, val endMs: Long, val text: String) {
          * [MIN_VISIBLE_MS] — a caption flashed for two frames is noise, not a caption.
          */
         fun remap(segments: List<Segment>, keep: List<Span>): List<Segment> {
-            val out = mutableListOf<Segment>()
-
-            for (segment in segments) {
-                // How much output timeline the kept spans so far have used up.
-                var elapsed = 0L
-                var start = -1L
-                var end = -1L
-
-                for (span in keep) {
-                    val overlapStart = maxOf(segment.startMs, span.startMs)
-                    val overlapEnd = minOf(segment.endMs, span.endMs)
-                    if (overlapEnd > overlapStart) {
-                        // A segment straddling a cut keeps its first and last surviving instants,
-                        // so the caption spans the join instead of vanishing at it.
-                        if (start < 0) start = elapsed + (overlapStart - span.startMs)
-                        end = elapsed + (overlapEnd - span.startMs)
-                    }
-                    elapsed += span.durationMs
-                }
-
-                if (start >= 0 && end - start >= MIN_VISIBLE_MS) {
-                    out += segment.copy(startMs = start, endMs = end)
-                }
+            val map = TimeMap(keep)
+            return segments.mapNotNull { segment ->
+                // A segment straddling a cut keeps its first and last surviving instants, so the
+                // caption spans the join instead of vanishing at it.
+                val (start, end) = map.toOutputRange(segment.startMs, segment.endMs)
+                    ?: return@mapNotNull null
+                segment.copy(startMs = start, endMs = end).takeIf { end - start >= MIN_VISIBLE_MS }
             }
-            return out
         }
 
         /** The caption showing at a given moment, or null. Segments must be sorted and disjoint. */

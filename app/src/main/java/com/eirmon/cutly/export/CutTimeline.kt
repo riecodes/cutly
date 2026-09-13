@@ -6,20 +6,26 @@ import com.eirmon.cutly.audio.Span
 internal object CutTimeline {
 
     /** Start of one source clip after all removed gaps have been collapsed. */
-    fun outputStartMs(keep: List<Span>, index: Int): Long {
-        require(index in keep.indices) { "Unknown clip" }
-        return keep.take(index).sumOf { it.durationMs }
-    }
+    fun outputStartMs(keep: List<Span>, index: Int): Long = TimeMap(keep).outputStart(index)
 
     /** Clip under a position on the collapsed output timeline. */
-    fun clipAtOutputPosition(keep: List<Span>, positionMs: Long): Int {
-        require(keep.isNotEmpty()) { "Nothing on the timeline" }
-        var end = 0L
-        keep.forEachIndexed { index, span ->
-            end += span.durationMs
-            if (positionMs < end) return index
+    fun clipAtOutputPosition(keep: List<Span>, positionMs: Long): Int = TimeMap(keep).clipAt(positionMs)
+
+    /**
+     * Cuts the clip containing a source instant in two at that instant.
+     *
+     * Returns the list unchanged when the instant is in a gap or too close to either edge for
+     * both halves to be at least [minimumMs] long; a sliver is not a clip anyone wanted.
+     */
+    fun split(keep: List<Span>, sourceMs: Long, minimumMs: Long = 100L): List<Span> {
+        val index = keep.indexOfFirst { sourceMs > it.startMs && sourceMs < it.endMs }
+        if (index < 0) return keep
+        val span = keep[index]
+        if (sourceMs - span.startMs < minimumMs || span.endMs - sourceMs < minimumMs) return keep
+        return keep.toMutableList().apply {
+            this[index] = Span(span.startMs, sourceMs)
+            add(index + 1, Span(sourceMs, span.endMs))
         }
-        return keep.lastIndex
     }
 
     /** Applies one clip's trim handles while keeping the source timeline valid. */

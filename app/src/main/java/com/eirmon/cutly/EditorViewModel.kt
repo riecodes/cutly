@@ -18,6 +18,7 @@ import com.eirmon.cutly.data.ProjectStore
 import com.eirmon.cutly.export.ClipExporter
 import com.eirmon.cutly.export.CutTimeline
 import com.eirmon.cutly.export.MediaSaver
+import com.eirmon.cutly.export.TimeMap
 import com.eirmon.cutly.transcribe.Segment
 import com.eirmon.cutly.transcribe.SherpaModelManager
 import com.eirmon.cutly.transcribe.TranscriberFactory
@@ -60,7 +61,9 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         /** Who a cloud transcript would upload to. Null with [engine] CLOUD means no key is set. */
         val cloudProvider: String? = null,
         /** Non-null while a project is open in the editor. */
-        val review: Review? = null
+        val review: Review? = null,
+        val canUndo: Boolean = false,
+        val canRedo: Boolean = false
     ) {
         /** The transcript action cannot run until a key is pasted in Settings. */
         val needsKey: Boolean get() = engine == TranscriptionEngine.CLOUD && cloudProvider == null
@@ -125,6 +128,10 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     private var transcriptJob: Job? = null
     private var analysis: Analysis? = null
+
+    /** Snapshots of [Review] before each edit. Immutable data, so a snapshot is a reference. */
+    private val undoStack = ArrayDeque<Review>()
+    private val redoStack = ArrayDeque<Review>()
 
     /** One lane, so two quick edits cannot land on disk in the wrong order. */
     @kotlin.OptIn(ExperimentalCoroutinesApi::class)
@@ -273,7 +280,11 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                         captionsEnabled = project.captionsEnabled && project.captions != null,
                         savedName = project.savedName
                     )
-                    _state.update { it.copy(isBusy = false, status = null, review = review) }
+                    undoStack.clear()
+                    redoStack.clear()
+                    _state.update {
+                        it.copy(isBusy = false, status = null, review = review, canUndo = false, canRedo = false)
+                    }
                     persist(review)
                 },
                 onFailure = { failure -> fail("Could not read the video", failure) }
@@ -334,6 +345,32 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    /** Cuts the clip under the playhead in two. [outputMs] is on the preview's clock. */
+    fun splitAtPlayhead(outputMs: Long) {
+        edit { review ->
+            val sourceMs = TimeMap(review.keep).toSource(outputMs)
+            val split = CutTimeline.split(review.keep, sourceMs)
+            if (split.size == review.keep.size) review else review.copy(manualEdits = true, keep = split)
+        }
+    }
+
+    fun undo() = restore(from = undoStack, to = redoStack)
+
+    fun redo() = restore(from = redoStack, to = undoStack)
+
+    private fun restore(from: ArrayDeque<Review>, to: ArrayDeque<Review>) {
+        var restored: Review? = null
+        _state.update { current ->
+            val review = current.review ?: return@update current
+            if (review.savedName != null) return@update current
+            val previous = from.removeLastOrNull() ?: return@update current
+            to.addLast(review)
+            restored = previous
+            current.copy(review = previous, canUndo = undoStack.isNotEmpty(), canRedo = redoStack.isNotEmpty())
+        }
+        restored?.let(::persist)
+    }
+
     /**
      * Applies one change to the open review and writes it out. A saved review is a finished
      * result, not a draft: letting the sliders move on it would show numbers that no longer
@@ -345,7 +382,12 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             val review = current.review ?: return@update current
             if (review.savedName != null) return@update current
             val next = change(review)
-            if (next === review) current else current.copy(review = next).also { changed = next }
+            if (next === review) return@update current
+            undoStack.addLast(review)
+            while (undoStack.size > UNDO_DEPTH) undoStack.removeFirst()
+            redoStack.clear()
+            changed = next
+            current.copy(review = next, canUndo = true, canRedo = false)
         }
         changed?.let(::persist)
     }
@@ -563,5 +605,6 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     private companion object {
         const val TRANSCRIBE_ATTEMPTS = 3
+        const val UNDO_DEPTH = 30
     }
 }
