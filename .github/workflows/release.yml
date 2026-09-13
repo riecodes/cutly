@@ -41,17 +41,21 @@ jobs:
           CUTLY_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           export CUTLY_VERSION="${CUTLY_VERSION#v}"
-          ./gradlew testDebugUnitTest assembleRelease --no-daemon
+          ./gradlew testDebugUnitTest assembleRelease bundleRelease --no-daemon
 
-      - name: Name and checksum the APK
+      # The APK is what the install page links to. The AAB is the Play Console upload; it is
+      # signed with the same key, which becomes the Play App Signing upload key.
+      - name: Name and checksum the artifacts
         run: |
           version="${GITHUB_REF_NAME#v}"
           cp app/build/outputs/apk/release/app-release.apk "cutly-$version.apk"
-          sha256sum "cutly-$version.apk" > "cutly-$version.apk.sha256"
+          cp app/build/outputs/bundle/release/app-release.aab "cutly-$version.aab"
+          sha256sum "cutly-$version.apk" "cutly-$version.aab" > "cutly-$version.sha256"
 
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             cutly-*.apk
-            cutly-*.apk.sha256
+            cutly-*.aab
+            cutly-*.sha256
           generate_release_notes: true
