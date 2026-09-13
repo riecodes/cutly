@@ -3,7 +3,9 @@ package com.eirmon.cutly.audio
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
@@ -47,7 +49,7 @@ object PcmDecoder {
     suspend fun levels(audio: File, frameMs: Long = DEFAULT_FRAME_MS): Levels =
         withContext(Dispatchers.IO) {
             val meter = Meter(frameMs)
-            val declaredMs = decode(audio, meter)
+            val declaredMs = decode(audio, meter) { isActive }
             Levels(
                 db = meter.finish(),
                 frameMs = frameMs,
@@ -69,7 +71,7 @@ object PcmDecoder {
         withContext(Dispatchers.IO) {
             output.outputStream().buffered().use { stream ->
                 val writer = MonoPcmWriter(stream, targetRate)
-                decode(audio, writer)
+                decode(audio, writer) { isActive }
                 writer.finish()
                 PcmSpec(targetRate, 1, writer.bytesWritten)
             }
@@ -86,7 +88,7 @@ object PcmDecoder {
      *
      * @return the duration the container declares, in milliseconds, or 0 when it declares none.
      */
-    private fun decode(audio: File, sink: Sink): Long {
+    private fun decode(audio: File, sink: Sink, shouldContinue: () -> Boolean): Long {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
         try {
@@ -107,7 +109,7 @@ object PcmDecoder {
                 start()
             }
 
-            drain(extractor, codec, sink)
+            drain(extractor, codec, sink, shouldContinue)
 
             return inputFormat
                 .takeIf { it.containsKey(MediaFormat.KEY_DURATION) }
@@ -120,16 +122,31 @@ object PcmDecoder {
         }
     }
 
-    /** Pumps the extractor through the decoder, handing every output buffer to [sink]. */
-    private fun drain(extractor: MediaExtractor, codec: MediaCodec, sink: Sink) {
+    /**
+     * Pumps the extractor through the decoder, handing every output buffer to [sink].
+     *
+     * The loop never suspends, so coroutine cancellation cannot reach it on its own: [shouldContinue]
+     * is polled every pass instead. A decoder that stops producing anything is treated as broken
+     * rather than waited on forever, since a truncated file can withhold the end-of-stream flag.
+     */
+    private fun drain(
+        extractor: MediaExtractor,
+        codec: MediaCodec,
+        sink: Sink,
+        shouldContinue: () -> Boolean
+    ) {
         val info = MediaCodec.BufferInfo()
         var inputDone = false
         var outputDone = false
+        var idlePasses = 0
 
         while (!outputDone) {
+            if (!shouldContinue()) throw CancellationException("Decode cancelled")
+            var progressed = false
             if (!inputDone) {
                 val index = codec.dequeueInputBuffer(TIMEOUT_US)
                 if (index >= 0) {
+                    progressed = true
                     val buffer = codec.getInputBuffer(index)!!
                     val size = extractor.readSampleData(buffer, 0)
                     if (size < 0) {
@@ -146,8 +163,12 @@ object PcmDecoder {
 
             val index = codec.dequeueOutputBuffer(info, TIMEOUT_US)
             when {
-                index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> sink.configure(codec.outputFormat)
+                index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                    progressed = true
+                    sink.configure(codec.outputFormat)
+                }
                 index >= 0 -> {
+                    progressed = true
                     if (info.size > 0) {
                         val buffer = codec.getOutputBuffer(index)!!
                         // Position and limit are not guaranteed to be set for us.
@@ -159,6 +180,8 @@ object PcmDecoder {
                     if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outputDone = true
                 }
             }
+            idlePasses = if (progressed) 0 else idlePasses + 1
+            if (idlePasses >= MAX_IDLE_PASSES) throw IOException("Audio decoder stalled")
         }
     }
 
@@ -311,6 +334,8 @@ object PcmDecoder {
 
     private const val DEFAULT_FRAME_MS = 20L
     private const val TIMEOUT_US = 10_000L
+    /** Two 10 ms dequeues per pass, so this is about five seconds of nothing at all. */
+    private const val MAX_IDLE_PASSES = 250
     private const val FULL_SCALE_16_BIT = 32768.0
     private const val MAX_16_BIT = 32767.0
     private const val WRITE_CHUNK = 8192

@@ -22,6 +22,10 @@ import java.util.UUID
 class OpenAiTranscriber(private val apiKey: String) : Transcriber {
 
     override suspend fun transcribe(audio: File): List<Segment> = withContext(Dispatchers.IO) {
+        // whisper-1 rejects uploads over 25 MB; refuse before sending the whole file to learn that.
+        if (audio.length() > MAX_UPLOAD_BYTES) {
+            throw IOException("Take is too long to transcribe in one request")
+        }
         val boundary = "Cutly-${UUID.randomUUID()}"
         val connection = (URL(ENDPOINT).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
@@ -46,7 +50,7 @@ class OpenAiTranscriber(private val apiKey: String) : Transcriber {
 
             val failed = connection.responseCode !in 200..299
             val stream = if (failed) connection.errorStream else connection.inputStream
-            val response = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            val response = stream?.use { it.readCapped() }.orEmpty()
             if (failed && response.isBlank()) {
                 throw IOException("OpenAI returned HTTP ${connection.responseCode}")
             }
@@ -78,6 +82,7 @@ class OpenAiTranscriber(private val apiKey: String) : Transcriber {
 
     internal companion object {
         private const val MODEL = "whisper-1"
+        private const val MAX_UPLOAD_BYTES = 25L * 1000 * 1000
         private const val ENDPOINT = "https://api.openai.com/v1/audio/transcriptions"
         private const val UPLOAD_CHUNK_BYTES = 64 * 1024
         private const val PROMPT =

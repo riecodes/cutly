@@ -13,6 +13,7 @@ import com.eirmon.cutly.transcribe.SherpaModelState
 import com.eirmon.cutly.transcribe.SherpaTranscriber
 import com.eirmon.cutly.transcribe.Transcriber
 import com.eirmon.cutly.transcribe.TranscriptionLanguage
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -61,6 +62,7 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
     private val exporter = ClipExporter(application)
     private val sherpa = SherpaModelManager(application)
     private val gemini = CloudTranscriberFactory.createGemini(BuildConfig.GEMINI_API_KEY)
+    private var modelPoll: Job? = null
     private val _state = MutableStateFlow(
         UiState(
             engine = if (sherpa.isSelected()) TranscriptionEngine.SHERPA
@@ -87,10 +89,18 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
             }
         }
 
-        // DownloadManager survives this process. Polling its persisted ids reconnects the UI to
-        // an in-flight transfer after recreation, then performs the integrity-checked install.
-        viewModelScope.launch {
-            while (true) {
+        pollModel()
+    }
+
+    /**
+     * DownloadManager survives this process. Polling its persisted ids reconnects the UI to an
+     * in-flight transfer after recreation, then performs the integrity-checked install. The loop
+     * ends as soon as the model is settled, so a phone that never downloads it pays nothing.
+     */
+    private fun pollModel() {
+        if (modelPoll?.isActive == true) return
+        modelPoll = viewModelScope.launch {
+            do {
                 val modelState = runCatching { sherpa.state() }
                     .getOrElse { SherpaModelState.Failed(it.message ?: "Could not read model") }
                 _state.update { current -> current.copy(sherpaModel = modelState) }
@@ -118,8 +128,10 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
                     )
                 }
 
-                delay(if (modelState is SherpaModelState.Downloading) 500 else 2_000)
-            }
+                val inFlight = modelState is SherpaModelState.Downloading ||
+                    modelState is SherpaModelState.Verifying
+                if (inFlight) delay(if (modelState is SherpaModelState.Downloading) 500 else 2_000)
+            } while (inFlight)
         }
     }
 
@@ -136,6 +148,7 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
         }
         viewModelScope.launch {
             runCatching { sherpa.download() }
+                .onSuccess { pollModel() }
                 .onFailure { failure ->
                     _state.update {
                         it.copy(

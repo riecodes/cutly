@@ -25,13 +25,19 @@ object MediaSaver {
         val uri = resolver.insert(collection, values)
             ?: error("MediaStore rejected the insert for $displayName")
 
-        resolver.openOutputStream(uri)?.use { out ->
-            source.inputStream().use { it.copyTo(out) }
-        } ?: error("Could not open an output stream for $displayName")
+        try {
+            resolver.openOutputStream(uri)?.use { out ->
+                source.inputStream().use { it.copyTo(out) }
+            } ?: error("Could not open an output stream for $displayName")
 
-        values.clear()
-        values.put(MediaStore.Video.Media.IS_PENDING, 0)
-        resolver.update(uri, values, null, null)
+            values.clear()
+            values.put(MediaStore.Video.Media.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+        } catch (failure: Throwable) {
+            // A pending row nobody finishes is invisible in the gallery and keeps its bytes forever.
+            runCatching { resolver.delete(uri, null, null) }
+            throw failure
+        }
 
         return uri
     }

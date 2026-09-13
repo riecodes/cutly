@@ -18,16 +18,15 @@ import androidx.annotation.OptIn
 import com.eirmon.cutly.transcribe.CloudTranscriberFactory
 import com.eirmon.cutly.transcribe.Segment
 import com.eirmon.cutly.transcribe.Transcriber
+import com.eirmon.cutly.transcribe.retry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -292,10 +291,13 @@ class CleanupViewModel(application: Application) : AndroidViewModel(application)
             }
             val result = runCatching {
                 val cut = exporter.exportCut(source, review.keep, captions, analysis?.videoInfo)
-                try {
-                    MediaSaver.saveVideo(getApplication(), cut, name)
-                } finally {
-                    cut.delete()
+                // The MediaStore copy streams the whole file; on Main that is an ANR.
+                withContext(Dispatchers.IO) {
+                    try {
+                        MediaSaver.saveVideo(getApplication(), cut, name)
+                    } finally {
+                        cut.delete()
+                    }
                 }
             }
 
@@ -374,34 +376,34 @@ class CleanupViewModel(application: Application) : AndroidViewModel(application)
                 return@launch
             }
             try {
-                while (isActive) {
-                    try {
-                        val segments = transcriber.transcribe(audio)
+                val segments = retry(attempts = TRANSCRIBE_ATTEMPTS, baseDelayMs = 1_500L) { attempt ->
+                    if (attempt > 0) {
                         _state.update {
-                            it.copy(
-                                isBusy = false,
-                                status = null,
-                                review = it.review?.copy(captions = segments),
-                                // An empty transcript is a real answer, and silently leaving the
-                                // button unchanged would read as the request having failed.
-                                error = if (segments.isEmpty()) "No speech found to caption." else null
-                            )
+                            it.copy(status = "Transcription failed. Retrying…", error = null)
                         }
-                        if (segments.isNotEmpty() && enableCaptions) setCaptionsEnabled(true)
-                        _state.value.review?.let(::persist)
-                        return@launch
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (_: Throwable) {
-                        _state.update { it.copy(status = "Transcription failed. Retrying…", error = null) }
-                        delay(1_500L)
                     }
+                    transcriber.transcribe(audio)
                 }
+                _state.update {
+                    it.copy(
+                        isBusy = false,
+                        status = null,
+                        review = it.review?.copy(captions = segments),
+                        // An empty transcript is a real answer, and silently leaving the
+                        // button unchanged would read as the request having failed.
+                        error = if (segments.isEmpty()) "No speech found to caption." else null
+                    )
+                }
+                if (segments.isNotEmpty() && enableCaptions) setCaptionsEnabled(true)
+                _state.value.review?.let(::persist)
             } catch (cancelled: CancellationException) {
                 _state.update { it.copy(isBusy = false, status = null) }
+            } catch (failure: Throwable) {
+                fail("Could not transcribe", failure)
             } finally {
                 audio.delete()
-                transcriptJob = null
+                // A newer request may already own the handle; only the job that set it clears it.
+                if (transcriptJob === coroutineContext[Job]) transcriptJob = null
             }
         }
     }
@@ -415,6 +417,8 @@ class CleanupViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun closeReview() {
+        // A transcript that lands after the sheet is gone has nowhere to go.
+        transcriptJob?.cancel()
         analysis = null
         _state.update { it.copy(review = null) }
     }
@@ -538,5 +542,6 @@ class CleanupViewModel(application: Application) : AndroidViewModel(application)
         const val KEY_HAS_TRANSCRIPT = "has-transcript"
         const val KEY_CAPTIONS_ENABLED = "captions-enabled"
         const val MAX_LEVELS = 3_600_000
+        const val TRANSCRIBE_ATTEMPTS = 3
     }
 }

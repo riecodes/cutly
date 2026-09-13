@@ -2,6 +2,9 @@ package com.eirmon.cutly.ui
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import android.content.pm.PackageManager
 import android.util.Range
 import android.view.OrientationEventListener
@@ -24,6 +27,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -59,8 +63,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -93,10 +101,12 @@ fun CameraScreen(viewModel: CameraViewModel = viewModel()) {
     var hasCameraPermission by remember {
         mutableStateOf(context.isGranted(Manifest.permission.CAMERA))
     }
+    var cameraDenied by remember { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
         hasCameraPermission = result[Manifest.permission.CAMERA] ?: hasCameraPermission
+        if (!hasCameraPermission) cameraDenied = true
     }
 
     LaunchedEffect(Unit) {
@@ -290,9 +300,21 @@ fun CameraScreen(viewModel: CameraViewModel = viewModel()) {
                     }
             )
         } else if (!hasCameraPermission) {
-            Text(
-                text = "Camera permission needed",
-                color = Color.White,
+            PermissionGate(
+                denied = cameraDenied,
+                onAllow = {
+                    permissionLauncher.launch(
+                        arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
+                    )
+                },
+                onOpenSettings = {
+                    context.startActivity(
+                        Intent(
+                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.fromParts("package", context.packageName, null)
+                        )
+                    )
+                },
                 modifier = Modifier.align(Alignment.Center)
             )
         }
@@ -852,6 +874,54 @@ private suspend fun Context.awaitCameraProvider(): ProcessCameraProvider =
 
 private fun Context.isGranted(permission: String) =
     ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+
+/**
+ * What the viewfinder shows instead of black when the camera is not allowed yet.
+ *
+ * After a refusal Android may stop showing the system prompt at all, so the second refusal gets a
+ * way into the app's settings page rather than a button that silently does nothing.
+ */
+@Composable
+private fun PermissionGate(
+    denied: Boolean,
+    onAllow: () -> Unit,
+    onOpenSettings: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text(
+            text = "Cutly needs the camera to record a take. The microphone is optional; without " +
+                "it clips are silent.",
+            color = Color.White,
+            fontSize = 15.sp,
+            textAlign = TextAlign.Center
+        )
+        GateButton(label = "Allow camera", onClick = onAllow)
+        if (denied) {
+            GateButton(label = "Open settings", onClick = onOpenSettings)
+        }
+    }
+}
+
+@Composable
+private fun GateButton(label: String, onClick: () -> Unit) {
+    Text(
+        text = label,
+        color = Color.White,
+        fontSize = 14.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier
+            .clip(RoundedCornerShape(24.dp))
+            .background(Accent)
+            .clickable(onClick = onClick)
+            .semantics { role = Role.Button }
+            .padding(horizontal = 24.dp, vertical = 14.dp)
+    )
+}
 
 /** mm:ss, matching the reference clock. */
 internal fun formatDuration(ms: Long): String {

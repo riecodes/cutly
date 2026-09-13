@@ -67,7 +67,7 @@ class ClipRecorder(private val context: Context) {
         recording?.stop()
     }
 
-    private fun hasAudioPermission() = ContextCompat.checkSelfPermission(
+    fun hasAudioPermission() = ContextCompat.checkSelfPermission(
         context, Manifest.permission.RECORD_AUDIO
     ) == PackageManager.PERMISSION_GRANTED
 

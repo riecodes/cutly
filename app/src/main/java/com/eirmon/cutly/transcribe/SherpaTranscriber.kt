@@ -7,6 +7,8 @@ import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
 import com.k2fsa.sherpa.onnx.OfflineWhisperModelConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
@@ -32,13 +34,10 @@ internal class SherpaTranscriber(
 
     override suspend fun transcribe(audio: File): List<Segment> {
         val pcm = File(context.cacheDir, "cutly_sherpa_${System.currentTimeMillis()}.pcm")
-        val spec = PcmDecoder.toMonoPcm(audio, pcm, PcmDecoder.SPEECH_RATE)
-        if (spec.bytes == 0L) {
-            pcm.delete()
-            return emptyList()
-        }
-
         return try {
+            val spec = PcmDecoder.toMonoPcm(audio, pcm, PcmDecoder.SPEECH_RATE)
+            if (spec.bytes == 0L) return emptyList()
+
             val windows = withContext(Dispatchers.Default) { recognize(pcm, spec.sampleRate) }
             val durationMs = spec.bytes / 2 * 1000 / spec.sampleRate
 
@@ -61,7 +60,7 @@ internal class SherpaTranscriber(
         }
     }
 
-    private fun recognize(pcm: File, sampleRate: Int): List<Window> =
+    private suspend fun recognize(pcm: File, sampleRate: Int): List<Window> =
         OfflineRecognizer(
             config = OfflineRecognizerConfig(
                 modelConfig = OfflineModelConfig(
@@ -87,6 +86,9 @@ internal class SherpaTranscriber(
                 pcm.inputStream().buffered().use { input ->
                     var offsetMs = 0L
                     while (true) {
+                        // Each window is seconds of native inference; a cancelled transcription
+                        // should stop at the next one, not run the rest of the take.
+                        currentCoroutineContext().ensureActive()
                         val filled = input.fill(bytes)
                         val sampleBytes = filled - filled % 2
                         if (sampleBytes <= 0) break

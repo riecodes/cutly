@@ -198,7 +198,14 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         val file = store.newClipFile()
         val speed = current.speed
         val height = current.activeFormat?.heightPx ?: 1080
-        _state.update { it.copy(isRecording = true, currentClipMs = 0L, status = null) }
+        _state.update {
+            it.copy(
+                isRecording = true,
+                currentClipMs = 0L,
+                // A denied microphone still records; the user should not learn that after the take.
+                status = if (recorder.hasAudioPermission()) null else "Recording without sound"
+            )
+        }
 
         recorder.start(
             videoCapture = capture,
@@ -223,8 +230,8 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                     }
                 } else {
                     // Trust the file over the request: the height actually muxed is what export
-                    // has to normalise against.
-                    val probed = ClipProbe.probe(file)
+                    // has to normalise against. Metadata only: this runs on the main executor.
+                    val probed = ClipProbe.probeMetadata(file)
                     val clips = _state.value.clips +
                         Clip(file, durationMs, lens, speed, probed?.height ?: height)
                     store.save(clips)

@@ -62,7 +62,7 @@ class GeminiTranscriber(private val apiKey: String) : Transcriber {
 
             val failed = connection.responseCode !in 200..299
             val stream = if (failed) connection.errorStream else connection.inputStream
-            val response = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            val response = stream?.use { it.readCapped() }.orEmpty()
             if (failed && response.isBlank()) {
                 throw IOException("Gemini returned HTTP ${connection.responseCode}")
             }

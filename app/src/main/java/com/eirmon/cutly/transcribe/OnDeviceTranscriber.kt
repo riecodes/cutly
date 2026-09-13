@@ -69,13 +69,9 @@ class OnDeviceTranscriber(
         ensureInstalled(language)
 
         val pcm = File(context.cacheDir, "cutly_speech_${System.currentTimeMillis()}.pcm")
-        val spec = PcmDecoder.toMonoPcm(audio, pcm)
-        if (spec.bytes == 0L) {
-            pcm.delete()
-            return emptyList()
-        }
-
         val heard = try {
+            val spec = PcmDecoder.toMonoPcm(audio, pcm)
+            if (spec.bytes == 0L) return emptyList()
             withContext(Dispatchers.Main) { recognize(pcm, spec, language) }
         } finally {
             pcm.delete()

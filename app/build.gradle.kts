@@ -32,9 +32,6 @@ android {
         // three nobody runs on. Every Android phone since 2019 is arm64, and the emulator images
         // used here are x86_64, so those two are kept and the rest dropped.
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
-
-        buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
-        buildConfigField("String", "OPENAI_API_KEY", "\"$openAiApiKey\"")
     }
 
     buildTypes {
@@ -42,9 +39,15 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // String constants survive R8 untouched, so a key here would ship in every APK.
+            // Release builds carry no key; users paste their own in Settings.
+            buildConfigField("String", "GEMINI_API_KEY", "\"\"")
+            buildConfigField("String", "OPENAI_API_KEY", "\"\"")
         }
         debug {
             applicationIdSuffix = ".debug"
+            buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
+            buildConfigField("String", "OPENAI_API_KEY", "\"$openAiApiKey\"")
         }
     }
 
@@ -115,6 +118,7 @@ dependencies {
     implementation("${libs.sherpa.onnx.get()}@aar")
 
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
     // The android.jar used for unit tests stubs org.json out; the real implementation shadows it
     // so the Gemini response parser can be tested off-device.
     testImplementation(libs.json)
