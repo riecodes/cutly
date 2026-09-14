@@ -53,7 +53,8 @@ private fun BoxScope.PreviewControls(
     currentClipMs: Long = 0L,
     isRecording: Boolean = false,
     canRecord: Boolean = true,
-    maxTakeMs: Long = CameraViewModel.DEFAULT_MAX_TAKE_MS
+    zoomRatio: Float = 1f,
+    zoomStops: List<Float> = listOf(0.5f, 1f, 2f, 3f, 5f)
 ) {
     val hasTake = clips.isNotEmpty() || isRecording
     TopBar(
@@ -81,15 +82,15 @@ private fun BoxScope.PreviewControls(
         clips = clips,
         currentClipMs = currentClipMs,
         recordedMs = clips.sumOf { it.durationMs } + currentClipMs,
-        maxTakeMs = maxTakeMs,
         isRecording = isRecording,
         isExporting = false,
         canUndo = hasTake && !isRecording,
         canRecord = canRecord,
         canExport = hasTake && !isRecording,
-        linearZoom = if (isRecording) 0.4f else 0f,
-        zoomRatio = if (isRecording) 2.4f else 1f,
-        onSelectLimit = {},
+        linearZoom = if (zoomRatio > 1f) 0.4f else 0f,
+        zoomRatio = zoomRatio,
+        zoomStops = zoomStops,
+        onSelectZoom = {},
         onUndo = {},
         onRecordPress = {},
         onRecordReleaseAfterHold = {},
@@ -99,7 +100,7 @@ private fun BoxScope.PreviewControls(
     )
 }
 
-@Preview(name = "1 · Idle, length selector", widthDp = 360, heightDp = 780)
+@Preview(name = "1 · Idle, zoom selector", widthDp = 360, heightDp = 780)
 @Composable
 private fun PreviewIdle() = PreviewShell {
     PreviewControls(clips = emptyList())
@@ -111,7 +112,8 @@ private fun PreviewRecording() = PreviewShell {
     PreviewControls(
         clips = fakeClips(4_200, 1_100, 8_600),
         currentClipMs = 2_400L,
-        isRecording = true
+        isRecording = true,
+        zoomRatio = 2.4f
     )
 }
 
@@ -121,12 +123,12 @@ private fun PreviewPaused() = PreviewShell {
     PreviewControls(clips = fakeClips(4_200, 1_100, 8_600, 12_000, 3_300))
 }
 
-@Preview(name = "4 · Take full", widthDp = 360, heightDp = 780)
+@Preview(name = "4 · Long take, single-lens camera", widthDp = 360, heightDp = 780)
 @Composable
-private fun PreviewFull() = PreviewShell {
+private fun PreviewLongTake() = PreviewShell {
     PreviewControls(
-        clips = fakeClips(20_000, 15_500, 24_500),
-        canRecord = false
+        clips = fakeClips(120_000, 95_500, 184_500),
+        zoomStops = emptyList()
     )
 }
 
@@ -137,7 +139,7 @@ private fun PreviewCountdownSheet() = PreviewShell {
         seconds = 3,
         secondsOptions = CameraViewModel.TIMER_OPTIONS,
         limitMs = 42_000L,
-        maxLimitMs = 60_000L,
+        maxLimitMs = CameraViewModel.MAX_CLIP_LIMIT_MS,
         onSelectSeconds = {},
         onLimitChange = {},
         onStart = {},

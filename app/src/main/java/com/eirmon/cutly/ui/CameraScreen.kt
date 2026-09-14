@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -92,6 +93,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 @Composable
 fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = viewModel()) {
@@ -123,6 +125,7 @@ fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = vi
     var focusTap by remember { mutableStateOf<FocusTap?>(null) }
     var linearZoom by remember { mutableFloatStateOf(0f) }
     var zoomRatio by remember { mutableFloatStateOf(1f) }
+    var zoomStops by remember { mutableStateOf(emptyList<Float>()) }
     var pinchStartRatio by remember { mutableFloatStateOf(1f) }
     var showExportDialog by remember { mutableStateOf(false) }
     var showDiscardDialog by remember { mutableStateOf(false) }
@@ -216,7 +219,26 @@ fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = vi
     // otherwise the readout claims 3x on a lens that just snapped back to wide.
     LaunchedEffect(camera) {
         linearZoom = 0f
-        zoomRatio = camera?.cameraInfo?.zoomState?.value?.zoomRatio ?: 1f
+        zoomRatio = 1f
+        zoomStops = emptyList()
+
+        val info = camera?.cameraInfo ?: return@LaunchedEffect
+        // ZoomState is published with the lens's first capture result, which can land a frame or
+        // two after the bind returns. Waiting for it beats drawing a pill with no stops in it.
+        var zoom = info.zoomState.value
+        var waited = 0L
+        while (zoom == null && waited < ZOOM_STATE_TIMEOUT_MS) {
+            delay(ZOOM_STATE_POLL_MS)
+            waited += ZOOM_STATE_POLL_MS
+            zoom = info.zoomState.value
+        }
+        if (zoom == null) return@LaunchedEffect
+
+        zoomRatio = zoom.zoomRatio
+        linearZoom = zoom.linearZoom
+        // The stops are per lens: an ultra-wide reaches below 1x, a selfie camera often has no
+        // range at all, and no stop may sit outside what this lens can actually deliver.
+        zoomStops = zoomStopsFor(minRatio = zoom.minZoomRatio, maxRatio = zoom.maxZoomRatio)
     }
 
     // Torch is re-applied after every rebind: a flip drops it, and the lens may not have one.
@@ -385,15 +407,25 @@ fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = vi
             clips = state.clips,
             currentClipMs = state.currentClipMs,
             recordedMs = state.recordedMs,
-            maxTakeMs = state.maxTakeMs,
             isRecording = state.isRecording,
             isExporting = state.isExporting,
             canUndo = state.hasClips && !state.isRecording && !state.isExporting,
-            canRecord = videoCapture != null && !state.isFull && !state.isExporting,
+            canRecord = videoCapture != null && !state.isExporting,
             canExport = state.hasClips && !state.isRecording && !state.isExporting,
             linearZoom = linearZoom,
             zoomRatio = zoomRatio,
-            onSelectLimit = viewModel::setTakeLimit,
+            zoomStops = zoomStops,
+            onSelectZoom = { target ->
+                val zoom = camera?.cameraInfo?.zoomState?.value
+                val clamped = if (zoom != null) {
+                    target.coerceIn(zoom.minZoomRatio, zoom.maxZoomRatio)
+                } else {
+                    target
+                }
+                camera?.cameraControl?.setZoomRatio(clamped)
+                zoomRatio = clamped
+                linearZoom = camera?.cameraInfo?.zoomState?.value?.linearZoom ?: linearZoom
+            },
             onUndo = { showDiscardDialog = true },
             onRecordPress = viewModel::onRecordPressed,
             onRecordReleaseAfterHold = viewModel::stopClip,
@@ -466,7 +498,7 @@ fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = vi
                 seconds = state.timerSeconds,
                 secondsOptions = CameraViewModel.TIMER_OPTIONS,
                 limitMs = state.clipLimitMs,
-                maxLimitMs = state.maxTakeMs,
+                maxLimitMs = CameraViewModel.MAX_CLIP_LIMIT_MS,
                 onSelectSeconds = viewModel::setTimerSeconds,
                 onLimitChange = viewModel::setClipLimit,
                 onStart = {
@@ -690,7 +722,6 @@ internal fun CameraControls(
     clips: List<Clip>,
     currentClipMs: Long,
     recordedMs: Long,
-    maxTakeMs: Long,
     isRecording: Boolean,
     isExporting: Boolean,
     canUndo: Boolean,
@@ -698,7 +729,8 @@ internal fun CameraControls(
     canExport: Boolean,
     linearZoom: Float,
     zoomRatio: Float,
-    onSelectLimit: (Long) -> Unit,
+    zoomStops: List<Float>,
+    onSelectZoom: (Float) -> Unit,
     onUndo: () -> Unit,
     onRecordPress: () -> Unit,
     onRecordReleaseAfterHold: () -> Unit,
@@ -714,39 +746,28 @@ internal fun CameraControls(
             .padding(bottom = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Only while zoomed in — a permanent "1.0x" is noise on a camera that starts at wide.
-        AnimatedVisibility(visible = linearZoom > 0f, enter = fadeIn(), exit = fadeOut()) {
-            Text(
-                text = "%.1fx".format(zoomRatio),
-                style = ModeLabelStyle,
-                color = Color.White,
-                modifier = Modifier
-                    .padding(bottom = 10.dp)
-                    .background(ChromePill, RoundedCornerShape(50))
-                    .padding(horizontal = 12.dp, vertical = 5.dp)
-            )
+        // A fixed slot, so the clock appearing on the first clip does not shove the zoom pill
+        // and the record button down the screen.
+        Box(modifier = Modifier.height(24.dp), contentAlignment = Alignment.Center) {
+            AnimatedVisibility(visible = hasTake, enter = fadeIn(), exit = fadeOut()) {
+                Text(
+                    text = formatDuration(recordedMs),
+                    style = TimerStyle,
+                    color = Color.White
+                )
+            }
         }
 
-        // Timer replaces the length selector as soon as the take starts, exactly as in the
-        // reference — the cap is no longer changeable at that point anyway.
-        AnimatedVisibility(visible = hasTake, enter = fadeIn(), exit = fadeOut()) {
-            Text(
-                text = formatDuration(recordedMs),
-                style = TimerStyle,
-                color = Color.White
-            )
-        }
-        AnimatedVisibility(visible = !hasTake, enter = fadeIn(), exit = fadeOut()) {
-            TakeLimitSelector(selected = maxTakeMs, onSelect = onSelectLimit)
-        }
+        Spacer(Modifier.height(10.dp))
 
-        Spacer(Modifier.height(18.dp))
+        ZoomSelector(stops = zoomStops, ratio = zoomRatio, onSelect = onSelectZoom)
+
+        Spacer(Modifier.height(16.dp))
 
         Box(modifier = Modifier.fillMaxWidth()) {
             RecordButton(
                 clips = clips,
                 currentClipMs = currentClipMs,
-                maxMs = maxTakeMs,
                 isRecording = isRecording,
                 enabled = canRecord,
                 linearZoom = linearZoom,
@@ -778,27 +799,83 @@ internal fun CameraControls(
     }
 }
 
+/**
+ * The joined zoom pill from the reference: one stop per lens step, the active one a white thumb
+ * on the dark track. Between stops — mid-pinch, or after a slide on the record button — the
+ * active thumb reads the live ratio rather than lying about a round number.
+ */
 @Composable
-private fun TakeLimitSelector(selected: Long, onSelect: (Long) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        CameraViewModel.TAKE_LIMITS.forEach { limit ->
-            val isSelected = limit == selected
+internal fun ZoomSelector(
+    stops: List<Float>,
+    ratio: Float,
+    onSelect: (Float) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    // Nothing to pick on a lens with no range; the pill would be a single dead button.
+    if (stops.size < 2) return
+
+    val activeIndex = stops
+        .indexOfLast { ratio >= it - STOP_TOLERANCE }
+        .coerceAtLeast(0)
+
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(50))
+            .background(ChromePill)
+            .padding(4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        stops.forEachIndexed { index, stop ->
+            val isActive = index == activeIndex
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(if (isSelected) Color.White else Color.Transparent)
-                    .pointerInput(limit) { detectTapGestures(onTap = { onSelect(limit) }) }
-                    .padding(horizontal = 16.dp, vertical = 7.dp)
+                    .defaultMinSize(minWidth = 38.dp, minHeight = 34.dp)
+                    .clip(CircleShape)
+                    .background(if (isActive) Color.White else Color.Transparent)
+                    .pointerInput(stop) { detectTapGestures(onTap = { onSelect(stop) }) }
+                    .semantics { role = Role.Button }
+                    .padding(horizontal = 8.dp),
+                contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = formatTakeLimit(limit),
+                    // The active thumb tracks the real ratio, every other stop names itself.
+                    text = formatZoom(if (isActive) ratio else stop),
                     style = ModeLabelStyle,
-                    color = if (isSelected) Color.Black else Color.White
+                    fontSize = 13.sp,
+                    color = if (isActive) Color.Black else Color.White
                 )
             }
         }
     }
 }
+
+/**
+ * The stops to offer between [minRatio] and [maxRatio]: the round steps the lens can reach, plus
+ * the lens's own minimum when it goes wider than 1x. A lens with no usable range gets one entry,
+ * which the pill reads as "do not draw me".
+ */
+internal fun zoomStopsFor(minRatio: Float, maxRatio: Float): List<Float> {
+    if (maxRatio <= minRatio * 1.05f) return listOf(minRatio)
+
+    val wide = (minRatio * 10f).roundToInt() / 10f
+    return buildList {
+        if (minRatio < 0.95f) add(wide)
+        addAll(ROUND_STOPS.filter { it in minRatio..maxRatio && it > wide + STOP_TOLERANCE })
+    }.take(MAX_STOPS)
+}
+
+/** Round steps a phone camera is expected to offer, in the order the pill lays them out. */
+private val ROUND_STOPS = listOf(1f, 2f, 3f, 5f, 10f)
+
+/** Beyond five the pill runs into the screen edges on a narrow phone. */
+private const val MAX_STOPS = 5
+
+/** How far past a stop the ratio can sit and still count as being on it. */
+private const val STOP_TOLERANCE = 0.05f
+
+/** How long a freshly bound lens is given to publish its zoom range, and how often it is read. */
+private const val ZOOM_STATE_TIMEOUT_MS = 1_000L
+private const val ZOOM_STATE_POLL_MS = 100L
 
 /** Round translucent chrome button, used for the top-bar controls. */
 @Composable
@@ -929,12 +1006,12 @@ internal fun formatDuration(ms: Long): String {
     return "%02d:%02d".format(totalSeconds / 60, totalSeconds % 60)
 }
 
-/**
- * Take lengths read as "15s", "60s", "10m" — the reference keeps 60 in seconds and only switches
- * to minutes for the long option, so "600s" would look wrong next to it.
- */
-internal fun formatTakeLimit(limitMs: Long): String =
-    if (limitMs >= 120_000L) "${limitMs / 60_000}m" else "${limitMs / 1000}s"
+/** Zoom reads as "1x" on a stop and "1.4x" between them; never "1.0x". */
+internal fun formatZoom(ratio: Float): String {
+    val rounded = (ratio * 10f).roundToInt() / 10f
+    val text = if (rounded % 1f == 0f) rounded.toInt().toString() else rounded.toString()
+    return "${text}x"
+}
 
 /** 1x, 0.5x, 2x — trimmed so whole numbers do not read as "2.0x". */
 internal fun formatSpeed(speed: Float): String {

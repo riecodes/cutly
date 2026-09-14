@@ -8,9 +8,9 @@ except the audio you explicitly ask to have transcribed.
 
 A projects grid with two ways in and one editor:
 
-- **Camera** — a TikTok-style segmented video camera. Record a take as a series of clips, pause
-  between them, discard the last clip, double-tap to flip lenses, then save the clips to the
-  gallery or open the merged take in the editor.
+- **Camera** — a TikTok-style segmented video camera. Record a take as a series of clips with no
+  length cap, pause between them, discard the last clip, jump between zoom stops, double-tap to
+  flip lenses, then save the clips to the gallery or open the merged take in the editor.
 - **Import** — pick any video on the phone; it becomes a project.
 - **Editor** — a clip timeline with the dead air detected and removed, hand trimming, a
   transcript (on device, offline Whisper, or your own cloud key) and captions burned into the
@@ -66,8 +66,13 @@ That single choice is what makes discard, per-clip export, and mid-take lens swi
   the current clip is finalized, the use cases are rebound, and recording auto-resumes on the new
   lens. The gap is sub-frame after concat.
 - **Single tap** — tap to focus.
-- **60s cap** — `FileOutputOptions.setDurationLimitMillis` is set to the take's *remaining* budget,
-  so the running clip can never overshoot the total.
+- **No length cap** — a take runs until it is stopped or the volume fills up.
+  `FileOutputOptions.setDurationLimitMillis` is only set when the countdown sheet's optional
+  per-clip cap is on. Free space is checked before every clip and every two seconds while one is
+  running, and the clip is finalized with a margin left rather than dying inside the muxer.
+- **Zoom stops** — the pill above the record button offers the round ratios the *bound lens* can
+  actually reach, read off `ZoomState`, plus its own minimum when it goes wider than 1x. Between
+  stops — mid-pinch, or after a slide on the record button — the active stop shows the live ratio.
 - **Process death** — the clip list is written to `cache/clips/session.idx` after every clip, and
   restored on launch. Android kills backgrounded camera apps aggressively.
 - **Rotation** — the activity is locked to portrait, so an `OrientationEventListener` feeds

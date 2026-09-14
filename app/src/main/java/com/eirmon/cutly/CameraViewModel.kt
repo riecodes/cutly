@@ -38,7 +38,6 @@ class CameraViewModel(
         val isRecording: Boolean = false,
         val currentClipMs: Long = 0L,
         val lensFacing: Int = CameraSelector.LENS_FACING_BACK,
-        val maxTakeMs: Long = DEFAULT_MAX_TAKE_MS,
         val isExporting: Boolean = false,
         val status: String? = null,
         /** A merged take waiting to be handed to the editor; the screen consumes it. */
@@ -53,14 +52,12 @@ class CameraViewModel(
         val timerSeconds: Int = 3,
         val countdownRemaining: Int = 0,
         val speed: Float = 1f,
-        /** Optional per-clip cap set from the countdown sheet; defaults to the whole take. */
-        val clipLimitMs: Long = DEFAULT_MAX_TAKE_MS
+        /** Optional per-clip cap set from the countdown sheet. Null means run until stopped. */
+        val clipLimitMs: Long? = null
     ) {
         val recordedMs: Long
             get() = clips.sumOf { it.outputDurationMs } + (currentClipMs / speed).toLong()
 
-        val remainingMs: Long get() = (maxTakeMs - recordedMs).coerceAtLeast(0L)
-        val isFull: Boolean get() = remainingMs <= 0L
         val hasClips: Boolean get() = clips.isNotEmpty()
         val isCountingDown: Boolean get() = countdownRemaining > 0
 
@@ -91,6 +88,9 @@ class CameraViewModel(
 
     /** Set when a lens switch interrupted an active clip, so recording auto-resumes after rebind. */
     private var resumeAfterRebind = false
+
+    /** Clip-elapsed time of the last free-space check, so the running clip polls it sparingly. */
+    private var lastSpaceCheckMs = 0L
 
     init {
         val restored = store.load()
@@ -199,9 +199,17 @@ class CameraViewModel(
     fun startClip() {
         val capture = videoCapture ?: return
         val current = _state.value
-        if (current.isRecording || current.isFull || current.isExporting) return
+        if (current.isRecording || current.isExporting) return
+
+        // The take has no length cap any more, so the volume is the only thing that ends it.
+        // Refusing here — rather than letting CameraX fail mid-clip — keeps the message honest.
+        if (store.usableSpaceBytes() < LOW_SPACE_BYTES) {
+            _state.update { it.copy(status = "Not enough storage to record") }
+            return
+        }
 
         val file = store.newClipFile()
+        lastSpaceCheckMs = 0L
         val speed = current.speed
         val height = current.activeFormat?.heightPx ?: 1080
         _state.update {
@@ -216,13 +224,14 @@ class CameraViewModel(
         recorder.start(
             videoCapture = capture,
             file = file,
-            // The budget is in output milliseconds, so a 2x clip may run twice as long on the
-            // wire. The countdown sheet's per-clip cap tightens it further when it is shorter.
-            durationLimitMs = (minOf(current.remainingMs, current.clipLimitMs) * speed).toLong(),
+            // Null unless the countdown sheet set a per-clip cap. The cap is in output
+            // milliseconds, so a 2x clip is allowed to run twice as long on the wire.
+            durationLimitMs = current.clipLimitMs?.let { (it * speed).toLong() },
             onProgress = { elapsed ->
                 _state.update { if (it.isRecording) it.copy(currentClipMs = elapsed) else it }
+                stopIfSpaceRunsOut(elapsed)
             },
-            onFinished = { durationMs, failed ->
+            onFinished = { durationMs, failed, outOfSpace ->
                 val lens = _state.value.lensFacing
                 if (failed || durationMs < MIN_CLIP_MS) {
                     // Sub-threshold taps produce unusable files; drop them silently.
@@ -231,7 +240,11 @@ class CameraViewModel(
                         it.copy(
                             isRecording = false,
                             currentClipMs = 0L,
-                            status = if (failed) "Clip failed" else null
+                            status = when {
+                                outOfSpace -> OUT_OF_SPACE_MESSAGE
+                                failed -> "Clip failed"
+                                else -> null
+                            }
                         )
                     }
                 } else {
@@ -242,7 +255,12 @@ class CameraViewModel(
                         Clip(file, durationMs, lens, speed, probed?.height ?: height)
                     store.save(clips)
                     _state.update {
-                        it.copy(clips = clips, isRecording = false, currentClipMs = 0L)
+                        it.copy(
+                            clips = clips,
+                            isRecording = false,
+                            currentClipMs = 0L,
+                            status = if (outOfSpace) OUT_OF_SPACE_MESSAGE else it.status
+                        )
                     }
                 }
             }
@@ -252,6 +270,19 @@ class CameraViewModel(
     /** Pause. Finalizes the running clip; the next start() begins a new one. */
     fun stopClip() {
         if (_state.value.isRecording) recorder.stop()
+    }
+
+    /**
+     * Ends the clip before the volume fills up. CameraX has its own storage floor, but it
+     * finalizes with an error at that point; stopping a little earlier keeps the clip ordinary.
+     */
+    private fun stopIfSpaceRunsOut(elapsedMs: Long) {
+        if (elapsedMs - lastSpaceCheckMs < SPACE_CHECK_INTERVAL_MS) return
+        lastSpaceCheckMs = elapsedMs
+        if (store.usableSpaceBytes() >= LOW_SPACE_BYTES) return
+
+        _state.update { it.copy(status = OUT_OF_SPACE_MESSAGE) }
+        recorder.stop()
     }
 
     fun discardLast() {
@@ -340,15 +371,17 @@ class CameraViewModel(
         handle[KEY_TIMER] = seconds
     }
 
-    /** How long the clip started by the countdown is allowed to run. */
-    fun setClipLimit(limitMs: Long) {
-        _state.update { it.copy(clipLimitMs = limitMs.coerceIn(1_000L, it.maxTakeMs)) }
+    /** How long a clip is allowed to run. Null is the default: until stopped, or out of space. */
+    fun setClipLimit(limitMs: Long?) {
+        _state.update {
+            it.copy(clipLimitMs = limitMs?.coerceIn(1_000L, MAX_CLIP_LIMIT_MS))
+        }
     }
 
     /** The countdown sheet's start button. */
     fun startCountdownNow() {
         val current = _state.value
-        if (current.isRecording || current.isExporting || current.isFull) return
+        if (current.isRecording || current.isExporting) return
         startCountdown(current.timerSeconds)
     }
 
@@ -357,17 +390,6 @@ class CameraViewModel(
         if (_state.value.isRecording) return
         _state.update { it.copy(speed = speed) }
         handle[KEY_SPEED] = speed
-    }
-
-    /**
-     * Changes the take length, matching the reference's 15s / 60s selector. Locked once the take
-     * has started, since shrinking the cap under already-recorded clips has no sane meaning.
-     */
-    fun setTakeLimit(limitMs: Long) {
-        val current = _state.value
-        if (current.hasClips || current.isRecording || current.isExporting) return
-        // The per-clip cap can never exceed the take it lives inside.
-        _state.update { it.copy(maxTakeMs = limitMs, clipLimitMs = limitMs) }
     }
 
     // endregion
@@ -448,11 +470,20 @@ class CameraViewModel(
         private const val KEY_TIMER = "timer"
         private const val KEY_FLASH = "flash"
 
-        const val DEFAULT_MAX_TAKE_MS = 60_000L
         const val MIN_CLIP_MS = 300L
 
-        /** Selectable take lengths, shortest first. */
-        val TAKE_LIMITS = listOf(15_000L, 60_000L, 600_000L)
+        /** The longest per-clip cap the countdown sheet can set; past it the slider reads off. */
+        const val MAX_CLIP_LIMIT_MS = 600_000L
+
+        /**
+         * Recording stops with this much of the volume left. FHD 60 runs at roughly 20 MB a
+         * minute, so the floor is a few minutes of headroom for the muxer and for the export
+         * that follows the take.
+         */
+        private const val LOW_SPACE_BYTES = 150L * 1024 * 1024
+        private const val SPACE_CHECK_INTERVAL_MS = 2_000L
+        private const val OUT_OF_SPACE_MESSAGE = "Storage full — take stopped"
+
         val TIMER_OPTIONS = listOf(3, 10)
 
         /** Fastest first, matching the top-to-bottom order of the reference's speed column. */

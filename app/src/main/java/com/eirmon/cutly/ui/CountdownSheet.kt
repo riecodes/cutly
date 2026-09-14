@@ -38,7 +38,8 @@ import kotlin.math.sin
 
 /**
  * The self-timer sheet from the reference: pick 3s or 10s, drag the handle to cap how long the
- * clip runs once the countdown ends, then start.
+ * clip runs once the countdown ends, then start. The cap is optional — dragged to the far right
+ * it comes off, and the clip runs until it is stopped or the phone runs out of space.
  *
  * The bar pattern stands in for the reference's music waveform — there is no soundtrack here, so
  * it is drawn from a fixed function rather than pretending to sample audio.
@@ -47,10 +48,10 @@ import kotlin.math.sin
 internal fun CountdownSheet(
     seconds: Int,
     secondsOptions: List<Int>,
-    limitMs: Long,
+    limitMs: Long?,
     maxLimitMs: Long,
     onSelectSeconds: (Int) -> Unit,
-    onLimitChange: (Long) -> Unit,
+    onLimitChange: (Long?) -> Unit,
     onStart: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -80,7 +81,7 @@ internal fun CountdownSheet(
         Spacer(Modifier.height(14.dp))
 
         Text(
-            text = "${(limitMs / 1000)}s",
+            text = formatClipLimit(limitMs),
             color = Color.White,
             fontFamily = TikTokSans,
             fontWeight = FontWeight.SemiBold,
@@ -154,8 +155,9 @@ private fun SecondsToggle(seconds: Int, options: List<Int>, onSelect: (Int) -> U
 }
 
 @Composable
-private fun LimitTrack(limitMs: Long, maxLimitMs: Long, onLimitChange: (Long) -> Unit) {
-    val fraction = (limitMs.toFloat() / maxLimitMs).coerceIn(MIN_FRACTION, 1f)
+private fun LimitTrack(limitMs: Long?, maxLimitMs: Long, onLimitChange: (Long?) -> Unit) {
+    // No cap parks the handle at the far right, which is also where dragging takes it off again.
+    val fraction = limitMs?.let { (it.toFloat() / maxLimitMs).coerceIn(MIN_FRACTION, 1f) } ?: 1f
 
     Canvas(
         modifier = Modifier
@@ -163,14 +165,12 @@ private fun LimitTrack(limitMs: Long, maxLimitMs: Long, onLimitChange: (Long) ->
             .height(74.dp)
             .pointerInput(maxLimitMs) {
                 detectHorizontalDragGestures { change, _ ->
-                    val ratio = (change.position.x / size.width).coerceIn(MIN_FRACTION, 1f)
-                    onLimitChange((ratio * maxLimitMs).roundToLong())
+                    onLimitChange(limitAt(change.position.x / size.width, maxLimitMs))
                 }
             }
             .pointerInput(maxLimitMs) {
                 detectTapGestures { offset ->
-                    val ratio = (offset.x / size.width).coerceIn(MIN_FRACTION, 1f)
-                    onLimitChange((ratio * maxLimitMs).roundToLong())
+                    onLimitChange(limitAt(offset.x / size.width, maxLimitMs))
                 }
             }
     ) {
@@ -212,5 +212,21 @@ private fun LimitTrack(limitMs: Long, maxLimitMs: Long, onLimitChange: (Long) ->
     }
 }
 
+/** Where along the track a gesture lands, in milliseconds — or null for the no-cap end of it. */
+private fun limitAt(rawRatio: Float, maxLimitMs: Long): Long? {
+    val ratio = rawRatio.coerceIn(MIN_FRACTION, 1f)
+    return if (ratio >= NO_LIMIT_FRACTION) null else (ratio * maxLimitMs).roundToLong()
+}
+
+/** "No limit", "45s", "02:30" — seconds while they read naturally, the clock past that. */
+internal fun formatClipLimit(limitMs: Long?): String = when {
+    limitMs == null -> "No limit"
+    limitMs < 60_000L -> "${limitMs / 1000}s"
+    else -> formatDuration(limitMs)
+}
+
 /** A limit below this is not a usable clip, and a zero-width handle cannot be grabbed. */
 private const val MIN_FRACTION = 0.03f
+
+/** The last sliver of the track is the cap coming off rather than a ten-minute clip. */
+private const val NO_LIMIT_FRACTION = 0.97f

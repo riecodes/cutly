@@ -26,15 +26,18 @@ class ClipRecorder(private val context: Context) {
     fun start(
         videoCapture: VideoCapture<Recorder>,
         file: File,
-        durationLimitMs: Long,
+        durationLimitMs: Long?,
         onProgress: (elapsedMs: Long) -> Unit,
-        onFinished: (durationMs: Long, failed: Boolean) -> Unit
+        onFinished: (durationMs: Long, failed: Boolean, outOfSpace: Boolean) -> Unit
     ) {
         if (recording != null) return
 
         val options = FileOutputOptions.Builder(file)
-            // Hard stop so the running clip can never push the take past the global cap.
-            .setDurationLimitMillis(durationLimitMs.coerceAtLeast(MIN_LIMIT_MS))
+            .apply {
+                // Only when the user asked for a per-clip cap. Without one the clip runs until
+                // it is stopped or the volume fills up.
+                durationLimitMs?.let { setDurationLimitMillis(it.coerceAtLeast(MIN_LIMIT_MS)) }
+            }
             .build()
 
         val pending = videoCapture.output.prepareRecording(context, options)
@@ -51,12 +54,13 @@ class ClipRecorder(private val context: Context) {
                 is VideoRecordEvent.Finalize -> {
                     recording = null
                     val durationMs = event.recordingStats.recordedDurationNanos / 1_000_000
-                    // Hitting the duration cap is a normal stop, not a failure.
-                    val failed = event.hasError() &&
-                        event.error != VideoRecordEvent.Finalize.ERROR_DURATION_LIMIT_REACHED &&
-                        event.error != VideoRecordEvent.Finalize.ERROR_FILE_SIZE_LIMIT_REACHED
+                    val outOfSpace = event.hasError() &&
+                        event.error == VideoRecordEvent.Finalize.ERROR_INSUFFICIENT_STORAGE
+                    // Hitting a cap — length, file size, or the volume itself — is a normal stop
+                    // rather than a failure: CameraX still finalizes the footage recorded so far.
+                    val failed = event.hasError() && event.error !in GRACEFUL_STOPS
                     if (failed) file.delete()
-                    onFinished(durationMs, failed)
+                    onFinished(durationMs, failed, outOfSpace)
                 }
             }
         }
@@ -73,5 +77,12 @@ class ClipRecorder(private val context: Context) {
 
     private companion object {
         const val MIN_LIMIT_MS = 500L
+
+        /** Finalize errors that still leave a usable clip on disk. */
+        val GRACEFUL_STOPS = setOf(
+            VideoRecordEvent.Finalize.ERROR_DURATION_LIMIT_REACHED,
+            VideoRecordEvent.Finalize.ERROR_FILE_SIZE_LIMIT_REACHED,
+            VideoRecordEvent.Finalize.ERROR_INSUFFICIENT_STORAGE
+        )
     }
 }

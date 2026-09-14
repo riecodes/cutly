@@ -27,12 +27,15 @@ import kotlin.math.abs
  * The record control and the take's progress in one object, the way the reference does it: the
  * clip timeline is a ring around the button rather than a separate bar. Committed clips are
  * separated by white ticks, the clip being recorded extends the accent arc.
+ *
+ * A take has no length cap, so the ring measures itself against a rolling span — it fills toward
+ * the next round milestone, then rescales to the one after it. That keeps the clip ticks legible
+ * at any take length without pretending there is a budget to run out of.
  */
 @Composable
 internal fun RecordButton(
     clips: List<Clip>,
     currentClipMs: Long,
-    maxMs: Long,
     isRecording: Boolean,
     enabled: Boolean,
     linearZoom: Float,
@@ -67,6 +70,12 @@ internal fun RecordButton(
 
     val recordedMs = clips.sumOf { it.durationMs } + currentClipMs
     val dim = if (enabled) 1f else 0.4f
+    // Animated so a step up to the next span reads as the arc easing back, not as a jump.
+    val spanMs by animateFloatAsState(
+        targetValue = ringSpanMs(recordedMs).toFloat(),
+        animationSpec = tween(400),
+        label = "recordRingSpan"
+    )
 
     Canvas(
         modifier = modifier
@@ -128,7 +137,7 @@ internal fun RecordButton(
                 radius = ringRadius,
                 clips = clips,
                 currentClipMs = currentClipMs,
-                maxMs = maxMs,
+                spanMs = spanMs,
                 alpha = backingAlpha * dim
             )
         } else {
@@ -163,7 +172,7 @@ private fun DrawScope.drawTakeRing(
     radius: Float,
     clips: List<Clip>,
     currentClipMs: Long,
-    maxMs: Long,
+    spanMs: Float,
     alpha: Float
 ) {
     val stroke = Stroke(width = RING_STROKE.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Butt)
@@ -171,7 +180,7 @@ private fun DrawScope.drawTakeRing(
     val arcSize = Size(radius * 2f, radius * 2f)
 
     val recordedMs = clips.sumOf { it.durationMs } + currentClipMs
-    val sweep = (recordedMs.toFloat() / maxMs).coerceIn(0f, 1f) * 360f
+    val sweep = (recordedMs / spanMs).coerceIn(0f, 1f) * 360f
 
     drawArc(
         color = Accent,
@@ -192,7 +201,7 @@ private fun DrawScope.drawTakeRing(
         val isLast = index == clips.lastIndex
         if (isLast && currentClipMs == 0L) return@forEachIndexed
 
-        val angle = START_ANGLE + (cumulative.toFloat() / maxMs).coerceIn(0f, 1f) * 360f
+        val angle = START_ANGLE + (cumulative / spanMs).coerceIn(0f, 1f) * 360f
         drawArc(
             color = Color.White,
             startAngle = angle - TICK_DEGREES / 2f,
@@ -205,6 +214,17 @@ private fun DrawScope.drawTakeRing(
         )
     }
 }
+
+/**
+ * The span the ring currently draws against: the first milestone the take has not passed yet.
+ * Past the last one it steps in whole hours, which no phone has the storage to reach anyway.
+ */
+private fun ringSpanMs(recordedMs: Long): Long =
+    RING_SPANS.firstOrNull { it >= recordedMs }
+        ?: (((recordedMs + HOUR_MS - 1) / HOUR_MS) * HOUR_MS)
+
+private const val HOUR_MS = 3_600_000L
+private val RING_SPANS = listOf(15_000L, 30_000L, 60_000L, 120_000L, 300_000L, 600_000L, HOUR_MS)
 
 private val BUTTON_SIZE = 96.dp
 private val RING_STROKE = 5.dp

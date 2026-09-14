@@ -22,6 +22,12 @@ class ClipStore(context: Context) {
 
     fun newClipFile(): File = File(dir, "clip_${System.currentTimeMillis()}.mp4")
 
+    /**
+     * Free bytes on the volume the clips live on. A take runs until this runs out, so the
+     * recorder checks it before every clip and periodically while one is running.
+     */
+    fun usableSpaceBytes(): Long = dir.usableSpace
+
     fun save(clips: List<Clip>) {
         index.writeText(
             clips.joinToString("\n") {
