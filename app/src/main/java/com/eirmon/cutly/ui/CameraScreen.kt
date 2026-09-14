@@ -24,6 +24,8 @@ import androidx.camera.video.Quality
 import androidx.camera.video.Recorder
 import androidx.camera.video.VideoCapture
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -746,16 +748,19 @@ internal fun CameraControls(
             .padding(bottom = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // A fixed slot, so the clock appearing on the first clip does not shove the zoom pill
-        // and the record button down the screen.
+        // A fixed slot that fades rather than appears, so the clock arriving on the first clip
+        // does not shove the zoom pill and the record button down the screen.
+        val clockAlpha by animateFloatAsState(
+            targetValue = if (hasTake) 1f else 0f,
+            animationSpec = tween(200),
+            label = "recordClock"
+        )
         Box(modifier = Modifier.height(24.dp), contentAlignment = Alignment.Center) {
-            AnimatedVisibility(visible = hasTake, enter = fadeIn(), exit = fadeOut()) {
-                Text(
-                    text = formatDuration(recordedMs),
-                    style = TimerStyle,
-                    color = Color.White
-                )
-            }
+            Text(
+                text = formatDuration(recordedMs),
+                style = TimerStyle,
+                color = Color.White.copy(alpha = clockAlpha)
+            )
         }
 
         Spacer(Modifier.height(10.dp))
