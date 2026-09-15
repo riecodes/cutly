@@ -25,6 +25,8 @@ data class Project(
     val height: Int,
     val settings: SilenceSettings = SilenceSettings(),
     val keep: List<Span> = emptyList(),
+    /** Source regions deleted by hand. Re-detection keeps them out; nothing else reads them. */
+    val removed: List<Span> = emptyList(),
     /** True once a clip has been trimmed, split or deleted by hand; the detector then keeps off. */
     val manualEdits: Boolean = false,
     val captions: List<Segment>? = null,
@@ -48,6 +50,9 @@ data class Project(
         })
         put("keep", JSONArray().apply {
             keep.forEach { put(JSONArray().put(it.startMs).put(it.endMs)) }
+        })
+        put("removed", JSONArray().apply {
+            removed.forEach { put(JSONArray().put(it.startMs).put(it.endMs)) }
         })
         put("manualEdits", manualEdits)
         captions?.let { list ->
@@ -74,13 +79,16 @@ data class Project(
             val durationMs = json.optLong("durationMs", -1L).takeIf { it > 0 } ?: return null
             val defaults = SilenceSettings()
             val settings = json.optJSONObject("settings")
-            val keep = json.optJSONArray("keep")?.let { array ->
+            fun spans(key: String): List<Span>? = json.optJSONArray(key)?.let { array ->
                 List(array.length()) { index ->
                     val pair = array.optJSONArray(index) ?: return null
                     Span(pair.optLong(0, -1L), pair.optLong(1, -1L))
                 }
             }.orEmpty().filter { it.startMs >= 0 && it.endMs > it.startMs && it.endMs <= durationMs }
-            val ordered = keep.zipWithNext().all { (a, b) -> a.endMs <= b.startMs }
+            val keep = spans("keep") ?: return null
+            val removed = spans("removed") ?: return null
+            // Output order is the user's; only overlap on the source clock is a corrupt cut.
+            val disjoint = keep.sortedBy { it.startMs }.zipWithNext().all { (a, b) -> a.endMs <= b.startMs }
             val captions = json.optJSONArray("captions")?.let { array ->
                 List(array.length()) { index ->
                     val item = array.optJSONObject(index) ?: return null
@@ -102,7 +110,8 @@ data class Project(
                         ?: defaults.minSilenceMs,
                     padMs = settings?.optLong("padMs", defaults.padMs) ?: defaults.padMs
                 ),
-                keep = if (ordered) keep else emptyList(),
+                keep = if (disjoint) keep else emptyList(),
+                removed = removed,
                 manualEdits = json.optBoolean("manualEdits", false),
                 captions = captions,
                 captionsEnabled = json.optBoolean("captionsEnabled", false),

@@ -10,6 +10,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -61,6 +62,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -68,10 +70,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.media3.transformer.Composition
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import com.eirmon.cutly.EditorViewModel
 import com.eirmon.cutly.audio.SilenceSettings
 import com.eirmon.cutly.audio.Span
@@ -156,6 +163,9 @@ internal fun EditorScreen(
     onRedetect: () -> Unit,
     onClipChange: (Int, Long, Long) -> Unit,
     onRemoveClip: (Int) -> Unit,
+    onMoveClip: (Int, Int) -> Unit,
+    onAddFromCamera: (at: Int) -> Unit,
+    onAddFromGallery: (Uri, at: Int) -> Unit,
     onAddCaptions: () -> Unit,
     onCaptionsEnabled: (Boolean) -> Unit,
     onTranscribe: () -> Unit,
@@ -250,6 +260,36 @@ internal fun EditorScreen(
                 seek = PreviewSeek(position, ++seekId)
             }
         )
+        var showAddChooser by remember { mutableStateOf(false) }
+        // New footage lands after the selected clip, or after the one under the caret.
+        val insertAt = when {
+            selectedClip in review.keep.indices -> selectedClip + 1
+            review.keep.isNotEmpty() -> CutTimeline.clipAtOutputPosition(review.keep, playheadMs) + 1
+            else -> 0
+        }
+        val galleryPicker = rememberLauncherForActivityResult(
+            ActivityResultContracts.PickVisualMedia()
+        ) { picked -> picked?.let { onAddFromGallery(it, insertAt) } }
+        if (showAddChooser) {
+            ChoiceDialog(
+                title = "Add a clip here",
+                choices = listOf(
+                    "Record with the camera" to {
+                        showAddChooser = false
+                        onAddFromCamera(insertAt)
+                    },
+                    "Pick from the gallery" to {
+                        showAddChooser = false
+                        galleryPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
+                        )
+                    }
+                ),
+                dismissLabel = "Cancel",
+                onDismiss = { showAddChooser = false }
+            )
+        }
+
         ClipTimeline(
             source = review.source,
             clips = review.keep,
@@ -258,6 +298,8 @@ internal fun EditorScreen(
             selected = selectedClip,
             enabled = !busy && !saved,
             onClipChange = onClipChange,
+            onMove = onMoveClip,
+            onAdd = { showAddChooser = true },
             onSelect = {
                 tool = EditorTool.Clips
                 if (selectedClip == it) {
@@ -426,7 +468,7 @@ private fun TimelineHeader(review: EditorViewModel.Review, playheadMs: Long) {
 }
 
 @Composable
-private fun TimelineScrubber(
+internal fun TimelineScrubber(
     positionMs: Long,
     durationMs: Long,
     enabled: Boolean,
@@ -460,9 +502,16 @@ private fun ClipTimeline(
     selected: Int,
     enabled: Boolean,
     onClipChange: (Int, Long, Long) -> Unit,
+    onMove: (Int, Int) -> Unit,
+    onAdd: () -> Unit,
     onSelect: (Int) -> Unit
 ) {
     val frames by videoFrames(source, clips)
+    // A long press lifts a clip; it is tracked by span rather than slot because every swap
+    // changes its index under the finger.
+    var lifted by remember { mutableStateOf<Span?>(null) }
+    var liftOffset by remember { mutableFloatStateOf(0f) }
+    val latestClips by rememberUpdatedState(clips)
     val listState = rememberLazyListState()
     val map = remember(clips) { TimeMap(clips) }
     // A binary search per playhead tick, so no remember is needed to keep this cheap.
@@ -478,19 +527,52 @@ private fun ClipTimeline(
         state = listState,
         modifier = Modifier.fillMaxWidth().height(88.dp).background(Color.Black),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp, 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp)
+        horizontalArrangement = Arrangement.spacedBy(TILE_GAP)
     ) {
-        itemsIndexed(clips, key = { index, _ -> index }) { index, span ->
+        itemsIndexed(clips, key = { _, span -> "${span.startMs}:${span.endMs}" }) { index, span ->
             // The draft is what the handles are dragging; it becomes the span on release. Keeping
             // it here lets the box and its label follow the drag instead of freezing until commit.
             var draft by remember(span) { mutableStateOf(span) }
             var dragging by remember { mutableStateOf(false) }
-            val width = (72 + (span.durationMs / 1000f * 9f)).coerceIn(72f, 156f).dp
+            val width = tileWidth(span)
             var widthPx by remember { mutableIntStateOf(1) }
+            val latestIndex by rememberUpdatedState(index)
+            val isLifted = lifted == span
             Box(
                 modifier = Modifier
                     .width(width)
                     .fillMaxHeight()
+                    .animateItem()
+                    .zIndex(if (isLifted) 1f else 0f)
+                    .graphicsLayer { translationX = if (isLifted) liftOffset else 0f }
+                    .pointerInput(span, enabled) {
+                        if (!enabled) return@pointerInput
+                        val gap = TILE_GAP.toPx()
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = {
+                                lifted = span
+                                liftOffset = 0f
+                            },
+                            onDragEnd = { lifted = null },
+                            onDragCancel = { lifted = null },
+                            onDrag = { change, amount ->
+                                change.consume()
+                                liftOffset += amount.x
+                                val at = latestIndex
+                                val next = latestClips.getOrNull(at + 1)
+                                val previous = latestClips.getOrNull(at - 1)
+                                // Past half the neighbour it slides under; the offset is rebased
+                                // so the lifted tile stays under the finger.
+                                if (next != null && liftOffset > (tileWidth(next).toPx() + gap) / 2) {
+                                    onMove(at, at + 1)
+                                    liftOffset -= tileWidth(next).toPx() + gap
+                                } else if (previous != null && liftOffset < -(tileWidth(previous).toPx() + gap) / 2) {
+                                    onMove(at, at - 1)
+                                    liftOffset += tileWidth(previous).toPx() + gap
+                                }
+                            }
+                        )
+                    }
                     .onSizeChanged { widthPx = it.width.coerceAtLeast(1) }
                     .clip(RoundedCornerShape(3.dp))
                     .background(EditorTrack)
@@ -524,8 +606,7 @@ private fun ClipTimeline(
                         .padding(horizontal = 5.dp, vertical = 3.dp)
                 )
                 if (index == selected) {
-                    val before = clips.getOrNull(index - 1)?.endMs ?: 0L
-                    val after = clips.getOrNull(index + 1)?.startMs ?: totalMs
+                    val (before, after) = CutTimeline.sourceBounds(clips, index, totalMs)
                     TrimHandle(
                         draft = draft,
                         beforeMs = before,
@@ -572,8 +653,36 @@ private fun ClipTimeline(
                 }
             }
         }
+        // The add tile trails the last clip: camera or gallery footage joins the end of the take.
+        if (enabled) {
+            item(key = "add") {
+                Box(
+                    modifier = Modifier
+                        .width(56.dp)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(3.dp))
+                        .border(1.dp, EditorLine, RoundedCornerShape(3.dp))
+                        .clickable(onClick = onAdd)
+                        .semantics { role = Role.Button },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "+",
+                        color = Color.White,
+                        fontFamily = TikTokSans,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 26.sp
+                    )
+                }
+            }
+        }
     }
 }
+
+/** Tiles grow with the clip, within limits, so a long take does not become one endless bar. */
+private fun tileWidth(span: Span): Dp = (72 + (span.durationMs / 1000f * 9f)).coerceIn(72f, 156f).dp
+
+private val TILE_GAP = 3.dp
 
 @Composable
 private fun TimelineCaret(modifier: Modifier = Modifier) {

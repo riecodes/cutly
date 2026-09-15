@@ -9,6 +9,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -77,25 +78,35 @@ internal fun RecordButton(
         label = "recordRingSpan"
     )
 
+    // The gesture handler must outlive the press: keying pointerInput on these would restart it
+    // the moment onPress flips isRecording, and the release would never be seen. Latest values
+    // are read through state holders instead.
+    val latestEnabled by rememberUpdatedState(enabled)
+    val latestRecording by rememberUpdatedState(isRecording)
+    val latestZoom by rememberUpdatedState(linearZoom)
+    val latestOnPress by rememberUpdatedState(onPress)
+    val latestOnRelease by rememberUpdatedState(onReleaseAfterHold)
+    val latestOnZoom by rememberUpdatedState(onZoomChange)
+
     Canvas(
         modifier = modifier
             .size(BUTTON_SIZE)
-            .pointerInput(enabled, isRecording, linearZoom) {
+            .pointerInput(Unit) {
                 // Hand-rolled rather than detectTapGestures, because the button has to serve
                 // three behaviours at once: tap to toggle hands-free, hold to record only while
                 // held, and slide up mid-press to zoom.
                 awaitEachGesture {
                     val down = awaitFirstDown()
-                    if (!enabled) return@awaitEachGesture
+                    if (!latestEnabled) return@awaitEachGesture
 
-                    val wasRecording = isRecording
+                    val wasRecording = latestRecording
                     val startY = down.position.y
-                    val startZoom = linearZoom
+                    val startZoom = latestZoom
                     val pressedAt = System.currentTimeMillis()
                     var slid = false
 
                     // Press acts immediately: starts a clip when idle, ends one when running.
-                    onPress()
+                    latestOnPress()
 
                     while (true) {
                         val event = awaitPointerEvent()
@@ -105,14 +116,14 @@ internal fun RecordButton(
                             val heldMs = System.currentTimeMillis() - pressedAt
                             // A quick tap leaves recording running; a deliberate hold ends on
                             // release, which is what makes both styles work on one control.
-                            if (!wasRecording && heldMs >= HOLD_TO_RECORD_MS) onReleaseAfterHold()
+                            if (!wasRecording && heldMs >= HOLD_TO_RECORD_MS) latestOnRelease()
                             break
                         }
 
                         val travel = startY - change.position.y
                         if (!slid && abs(travel) > viewConfiguration.touchSlop) slid = true
                         if (slid && !wasRecording) {
-                            onZoomChange((startZoom + travel / ZOOM_TRAVEL.toPx()).coerceIn(0f, 1f))
+                            latestOnZoom((startZoom + travel / ZOOM_TRAVEL.toPx()).coerceIn(0f, 1f))
                             change.consume()
                         }
                     }

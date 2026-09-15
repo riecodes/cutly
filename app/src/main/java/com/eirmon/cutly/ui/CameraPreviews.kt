@@ -59,14 +59,21 @@ private fun BoxScope.PreviewControls(
     val hasTake = clips.isNotEmpty() || isRecording
     TopBar(
         canClear = hasTake && !isRecording,
+        formatLabel = "FHD · 60",
+        formatEnabled = !isRecording,
         onClear = {},
+        onOpenFormat = {},
         modifier = Modifier.align(Alignment.TopCenter)
     )
     SideRail(
+        flashOn = false,
+        hasFlash = true,
         speed = if (hasTake) 2f else 1f,
         aspectLabel = "9:16",
         enabled = !isRecording,
         aspectEnabled = !isRecording && !hasTake,
+        onFlip = {},
+        onFlash = {},
         onTimer = {},
         onSpeed = {},
         onAspect = {},
@@ -83,13 +90,6 @@ private fun BoxScope.PreviewControls(
         canUndo = hasTake && !isRecording,
         canRecord = canRecord,
         canExport = hasTake && !isRecording,
-        flashOn = false,
-        hasFlash = true,
-        formatLabel = "FHD · 60",
-        formatEnabled = !isRecording,
-        onFlash = {},
-        onFlip = {},
-        onOpenFormat = {},
         linearZoom = if (zoomRatio > 1f) 0.4f else 0f,
         zoomRatio = zoomRatio,
         zoomStops = zoomStops,

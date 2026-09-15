@@ -110,6 +110,30 @@ class ProjectStore(
         return register(id, name)
     }
 
+    /**
+     * Swaps the project's video for [file], which is moved in the way [adopt] moves. The cached
+     * audio measurement is dropped so the next open measures the new length; the cut list and
+     * captions are left to the caller, whose timeline they belong to.
+     */
+    fun replaceSource(id: String, file: File): Project? {
+        val project = load(id) ?: return null
+        val target = source(id)
+        try {
+            Files.move(file.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        } catch (_: IOException) {
+            file.copyTo(target, overwrite = true)
+            file.delete()
+        }
+        levels(id).delete()
+        val info = probe(target)
+        return project.copy(
+            updatedAt = now(),
+            durationMs = (info?.durationUs ?: project.durationMs * 1000) / 1000,
+            width = info?.width ?: project.width,
+            height = info?.height ?: project.height
+        ).also(::save)
+    }
+
     fun delete(id: String) {
         dir(id).deleteRecursively()
     }

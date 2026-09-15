@@ -36,7 +36,8 @@ import kotlinx.coroutines.launch
  */
 private sealed interface Screen {
     data object Projects : Screen
-    data object Camera : Screen
+    /** [appendTo] names the open project the take joins, at slot [at]; null starts a new one. */
+    data class Camera(val appendTo: String? = null, val at: Int = 0) : Screen
     /** [projectId] is null while an import or a merged take is still becoming a project. */
     data class Editor(val projectId: String?) : Screen
     data object Settings : Screen
@@ -44,7 +45,7 @@ private sealed interface Screen {
 
     fun encode(): String = when (this) {
         Projects -> "projects"
-        Camera -> "camera"
+        is Camera -> "camera:${appendTo.orEmpty()}:$at"
         is Editor -> "editor:${projectId.orEmpty()}"
         Settings -> "settings"
         Licenses -> "licenses"
@@ -52,7 +53,10 @@ private sealed interface Screen {
 
     companion object {
         fun decode(value: String): Screen = when {
-            value == "camera" -> Camera
+            value.startsWith("camera") -> {
+                val parts = value.removePrefix("camera").removePrefix(":").split(":")
+                Camera(parts.getOrNull(0)?.ifBlank { null }, parts.getOrNull(1)?.toIntOrNull() ?: 0)
+            }
             value == "settings" -> Settings
             value == "licenses" -> Licenses
             value.startsWith("editor:") -> Editor(value.removePrefix("editor:").ifBlank { null })
@@ -128,18 +132,23 @@ class MainActivity : ComponentActivity() {
                         editor.import(uri)
                         push(Screen.Editor(null))
                     },
-                    onOpenCamera = { push(Screen.Camera) },
+                    onOpenCamera = { push(Screen.Camera()) },
                     onOpenSettings = { push(Screen.Settings) },
                     onRename = { project, name -> editor.renameProject(project.id, name) },
                     onDuplicate = { editor.duplicateProject(it.id) },
                     onDelete = { editor.deleteProject(it.id) }
                 )
             }
-            Screen.Camera -> CameraScreen(
+            is Screen.Camera -> CameraScreen(
                 onOpenInEditor = { merged ->
-                    editor.adoptTake(merged)
-                    pop()
-                    push(Screen.Editor(null))
+                    if (top.appendTo != null) {
+                        editor.appendTake(merged, top.at)
+                        pop()
+                    } else {
+                        editor.adoptTake(merged)
+                        pop()
+                        push(Screen.Editor(null))
+                    }
                 }
             )
             is Screen.Editor -> {
@@ -172,6 +181,9 @@ class MainActivity : ComponentActivity() {
                         onRedetect = editor::redetect,
                         onClipChange = editor::updateClip,
                         onRemoveClip = editor::removeClip,
+                        onMoveClip = editor::moveClip,
+                        onAddFromCamera = { at -> push(Screen.Camera(appendTo = review.projectId, at = at)) },
+                        onAddFromGallery = editor::appendImport,
                         onAddCaptions = editor::addCaptions,
                         onCaptionsEnabled = editor::setCaptionsEnabled,
                         onTranscribe = editor::transcribe,

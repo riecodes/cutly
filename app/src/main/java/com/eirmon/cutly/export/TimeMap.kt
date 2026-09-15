@@ -10,7 +10,8 @@ import com.eirmon.cutly.audio.Span
  * direction a binary search instead of a walk, and having a single implementation is what stops
  * the caret, the captions and the split point from disagreeing about where a cut is.
  *
- * @param keep ordered, non-overlapping spans on the source clock.
+ * @param keep non-overlapping spans on the source clock, listed in output order. The order need
+ * not follow the source: a clip inserted or dragged into place sits wherever the user put it.
  */
 class TimeMap(val keep: List<Span>) {
 
@@ -51,15 +52,10 @@ class TimeMap(val keep: List<Span>) {
 
     /** Where a source instant lands in the output, or null when it was cut. */
     fun toOutput(sourceMs: Long): Long? {
-        var low = 0
-        var high = keep.lastIndex
-        while (low <= high) {
-            val mid = (low + high) ushr 1
-            val span = keep[mid]
-            when {
-                sourceMs < span.startMs -> high = mid - 1
-                sourceMs >= span.endMs -> low = mid + 1
-                else -> return outStarts[mid] + (sourceMs - span.startMs)
+        // A linear walk: the list is not in source order, and a take has tens of clips at most.
+        keep.forEachIndexed { index, span ->
+            if (sourceMs >= span.startMs && sourceMs < span.endMs) {
+                return outStarts[index] + (sourceMs - span.startMs)
             }
         }
         return null
@@ -74,7 +70,6 @@ class TimeMap(val keep: List<Span>) {
         var first = -1L
         var last = -1L
         for ((index, span) in keep.withIndex()) {
-            if (span.startMs >= endMs) break
             val overlapStart = maxOf(startMs, span.startMs)
             val overlapEnd = minOf(endMs, span.endMs)
             if (overlapEnd > overlapStart) {

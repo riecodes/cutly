@@ -113,10 +113,22 @@ class ProjectStoreTest {
     }
 
     @Test
-    fun outOfOrderSpansAreDroppedRatherThanTrusted() {
+    fun outOfOrderSpansAreTheUsersArrangementAndSurvive() {
+        val keep = listOf(Span(5_000, 6_000), Span(1_000, 2_000))
         val json = Project(
             id = "p1", name = "n", createdAt = 1, updatedAt = 1, durationMs = 10_000, width = 1, height = 1,
-            keep = listOf(Span(5_000, 6_000), Span(1_000, 2_000))
+            keep = keep, removed = listOf(Span(3_000, 4_000))
+        ).toJson()
+        val restored = Project.fromJson(json)!!
+        assertEquals(keep, restored.keep)
+        assertEquals(listOf(Span(3_000, 4_000)), restored.removed)
+    }
+
+    @Test
+    fun overlappingSpansAreDroppedRatherThanTrusted() {
+        val json = Project(
+            id = "p1", name = "n", createdAt = 1, updatedAt = 1, durationMs = 10_000, width = 1, height = 1,
+            keep = listOf(Span(1_000, 3_000), Span(2_000, 4_000))
         ).toJson()
         assertEquals(emptyList<Span>(), Project.fromJson(json)!!.keep)
     }

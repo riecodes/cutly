@@ -46,6 +46,7 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -141,7 +142,9 @@ fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = vi
     val zoomScope = rememberCoroutineScope()
     var zoomGlide by remember { mutableStateOf<Job?>(null) }
     var showExportDialog by remember { mutableStateOf(false) }
-    var showDiscardDialog by remember { mutableStateOf(false) }
+    // Which clip a confirm dialog is about to discard, and which one the player is showing.
+    var discardIndex by remember { mutableStateOf<Int?>(null) }
+    var previewIndex by remember { mutableStateOf<Int?>(null) }
     var showSizePanel by remember { mutableStateOf(false) }
     var showSpeedPicker by remember { mutableStateOf(false) }
     var showAspectPicker by remember { mutableStateOf(false) }
@@ -298,188 +301,203 @@ fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = vi
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        val request = surfaceRequest
-        if (request != null) {
-            CameraXViewfinder(
-                surfaceRequest = request,
-                // Letterboxed to the chosen shape and pinned under the status bar, as the
-                // reference does, rather than filling the screen and hiding what the crop takes.
+        Column(modifier = Modifier.fillMaxSize()) {
+            // The viewfinder and every control that belongs to it share one frame, letterboxed to
+            // the chosen shape under the status bar. The controls therefore sit on the picture's
+            // bottom edge and the band below is left to the clip strip.
+            Box(
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
+                    .align(Alignment.CenterHorizontally)
                     .windowInsetsPadding(WindowInsets.statusBars)
                     .aspectRatio(state.aspect.ratio)
                     .clip(RoundedCornerShape(22.dp))
-                    .onSizeChanged { viewfinderSize = it }
-                    // Declared before the tap detector so it sees events first and can claim a
-                    // swipe or pinch before the tap detector turns the release into a focus point.
-                    .viewfinderGestures(
-                        onFlip = viewModel::switchLens,
-                        onPinchStart = {
-                            zoomGlide?.cancel()
-                            pinchStartRatio = camera?.cameraInfo?.zoomState?.value?.zoomRatio ?: 1f
+            ) {
+                val request = surfaceRequest
+                if (request != null) {
+                    CameraXViewfinder(
+                        surfaceRequest = request,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .onSizeChanged { viewfinderSize = it }
+                            // Declared before the tap detector so it sees events first and can claim a
+                            // swipe or pinch before the tap detector turns the release into a focus point.
+                            .viewfinderGestures(
+                                onFlip = viewModel::switchLens,
+                                onPinchStart = {
+                                    zoomGlide?.cancel()
+                                    pinchStartRatio = camera?.cameraInfo?.zoomState?.value?.zoomRatio ?: 1f
+                                },
+                                onPinchScale = { scale ->
+                                    val zoomState = camera?.cameraInfo?.zoomState?.value
+                                    if (zoomState != null) {
+                                        val target = (pinchStartRatio * scale)
+                                            .coerceIn(zoomState.minZoomRatio, zoomState.maxZoomRatio)
+                                        camera?.cameraControl?.setZoomRatio(target)
+                                        zoomRatio = target
+                                        // Keep the record-button slide in step with the pinch, so the two
+                                        // controls never disagree about the current zoom.
+                                        linearZoom =
+                                            camera?.cameraInfo?.zoomState?.value?.linearZoom ?: linearZoom
+                                    }
+                                }
+                            )
+                            .pointerInput(camera, viewfinderSize) {
+                                detectTapGestures(
+                                    onDoubleTap = { viewModel.switchLens() },
+                                    onTap = { offset ->
+                                        val control = camera?.cameraControl ?: return@detectTapGestures
+                                        if (viewfinderSize == IntSize.Zero) return@detectTapGestures
+
+                                        // Mark the tap before metering starts — focus can take a moment,
+                                        // and the user needs to know the tap registered right away.
+                                        focusTap = FocusTap(offset, System.nanoTime())
+
+                                        val factory = SurfaceOrientedMeteringPointFactory(
+                                            viewfinderSize.width.toFloat(),
+                                            viewfinderSize.height.toFloat()
+                                        )
+                                        control.startFocusAndMetering(
+                                            FocusMeteringAction.Builder(
+                                                factory.createPoint(offset.x, offset.y)
+                                            ).build()
+                                        )
+                                    }
+                                )
+                            }
+                    )
+                } else if (!hasCameraPermission) {
+                    PermissionGate(
+                        denied = cameraDenied,
+                        onAllow = {
+                            permissionLauncher.launch(
+                                arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
+                            )
                         },
-                        onPinchScale = { scale ->
-                            val zoomState = camera?.cameraInfo?.zoomState?.value
-                            if (zoomState != null) {
-                                val target = (pinchStartRatio * scale)
-                                    .coerceIn(zoomState.minZoomRatio, zoomState.maxZoomRatio)
-                                camera?.cameraControl?.setZoomRatio(target)
-                                zoomRatio = target
-                                // Keep the record-button slide in step with the pinch, so the two
-                                // controls never disagree about the current zoom.
-                                linearZoom =
-                                    camera?.cameraInfo?.zoomState?.value?.linearZoom ?: linearZoom
-                            }
+                        onOpenSettings = {
+                            context.startActivity(
+                                Intent(
+                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    Uri.fromParts("package", context.packageName, null)
+                                )
+                            )
+                        },
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                }
+
+                focusTap?.let { tap ->
+                    FocusReticle(tap = tap, onFinished = { if (focusTap?.id == tap.id) focusTap = null })
+                }
+
+                TopBar(
+                    canClear = state.hasClips && !state.isRecording && !state.isExporting,
+                    formatLabel = state.formatLabel,
+                    formatEnabled = !state.isRecording && !state.isExporting &&
+                        state.availableFormats.isNotEmpty(),
+                    onClear = viewModel::discardAll,
+                    onOpenFormat = { showSizePanel = true },
+                    modifier = Modifier.align(Alignment.TopCenter)
+                )
+
+                SideRail(
+                    flashOn = state.flashOn,
+                    hasFlash = state.hasFlash,
+                    speed = state.speed,
+                    aspectLabel = state.aspect.label,
+                    enabled = !state.isRecording && !state.isExporting,
+                    aspectEnabled = !state.isRecording && !state.isExporting && !state.hasClips,
+                    onFlip = viewModel::switchLens,
+                    onFlash = viewModel::toggleFlash,
+                    onTimer = { showCountdownSheet = true },
+                    onSpeed = { showSpeedPicker = !showSpeedPicker },
+                    onAspect = { showAspectPicker = !showAspectPicker },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 64.dp, end = 6.dp)
+                )
+
+                if (state.isCountingDown) {
+                    Text(
+                        text = state.countdownRemaining.toString(),
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 96.sp,
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                }
+
+                state.status?.let { message ->
+                    Text(
+                        text = message,
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(top = 120.dp)
+                            .background(ChromePill, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                    )
+                }
+
+                CameraControls(
+                    clips = state.clips,
+                    currentClipMs = state.currentClipMs,
+                    recordedMs = state.recordedMs,
+                    isRecording = state.isRecording,
+                    isExporting = state.isExporting,
+                    canUndo = state.hasClips && !state.isRecording && !state.isExporting,
+                    canRecord = videoCapture != null && !state.isExporting,
+                    canExport = state.hasClips && !state.isRecording && !state.isExporting,
+                    linearZoom = linearZoom,
+                    zoomRatio = zoomRatio,
+                    zoomStops = zoomStops,
+                    onSelectZoom = { target ->
+                        val cam = camera ?: return@CameraControls
+                        val zoom = cam.cameraInfo.zoomState.value
+                        val clamped = if (zoom != null) {
+                            target.coerceIn(zoom.minZoomRatio, zoom.maxZoomRatio)
+                        } else {
+                            target
                         }
-                    )
-                    .pointerInput(camera, viewfinderSize) {
-                        detectTapGestures(
-                            onDoubleTap = { viewModel.switchLens() },
-                            onTap = { offset ->
-                                val control = camera?.cameraControl ?: return@detectTapGestures
-                                if (viewfinderSize == IntSize.Zero) return@detectTapGestures
-
-                                // Mark the tap before metering starts — focus can take a moment,
-                                // and the user needs to know the tap registered right away.
-                                focusTap = FocusTap(offset, System.nanoTime())
-
-                                val factory = SurfaceOrientedMeteringPointFactory(
-                                    viewfinderSize.width.toFloat(),
-                                    viewfinderSize.height.toFloat()
-                                )
-                                control.startFocusAndMetering(
-                                    FocusMeteringAction.Builder(
-                                        factory.createPoint(offset.x, offset.y)
-                                    ).build()
-                                )
+                        zoomGlide?.cancel()
+                        zoomGlide = zoomScope.launch {
+                            animate(
+                                initialValue = zoomRatio,
+                                targetValue = clamped,
+                                animationSpec = tween(ZOOM_GLIDE_MS)
+                            ) { value, _ ->
+                                cam.cameraControl.setZoomRatio(value)
+                                zoomRatio = value
                             }
-                        )
-                    }
-            )
-        } else if (!hasCameraPermission) {
-            PermissionGate(
-                denied = cameraDenied,
-                onAllow = {
-                    permissionLauncher.launch(
-                        arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
-                    )
-                },
-                onOpenSettings = {
-                    context.startActivity(
-                        Intent(
-                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                            Uri.fromParts("package", context.packageName, null)
-                        )
-                    )
-                },
-                modifier = Modifier.align(Alignment.Center)
-            )
-        }
+                            linearZoom = cam.cameraInfo.zoomState.value?.linearZoom ?: linearZoom
+                        }
+                    },
+                    onUndo = { discardIndex = state.clips.lastIndex },
+                    onRecordPress = viewModel::onRecordPressed,
+                    onRecordReleaseAfterHold = viewModel::stopClip,
+                    onZoomChange = { value ->
+                        zoomGlide?.cancel()
+                        linearZoom = value
+                        camera?.cameraControl?.setLinearZoom(value)
+                        zoomRatio = camera?.cameraInfo?.zoomState?.value?.zoomRatio ?: zoomRatio
+                    },
+                    onExport = { showExportDialog = true },
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                )
+            }
 
-        focusTap?.let { tap ->
-            FocusReticle(tap = tap, onFinished = { if (focusTap?.id == tap.id) focusTap = null })
-        }
-
-        TopBar(
-            canClear = state.hasClips && !state.isRecording && !state.isExporting,
-            onClear = viewModel::discardAll,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .windowInsetsPadding(WindowInsets.safeDrawing)
-        )
-
-        SideRail(
-            speed = state.speed,
-            aspectLabel = state.aspect.label,
-            enabled = !state.isRecording && !state.isExporting,
-            aspectEnabled = !state.isRecording && !state.isExporting && !state.hasClips,
-            onTimer = { showCountdownSheet = true },
-            onSpeed = { showSpeedPicker = !showSpeedPicker },
-            onAspect = { showAspectPicker = !showAspectPicker },
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .windowInsetsPadding(WindowInsets.safeDrawing)
-                .padding(top = 64.dp, end = 6.dp)
-        )
-
-        if (state.isCountingDown) {
-            Text(
-                text = state.countdownRemaining.toString(),
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                fontSize = 96.sp,
-                modifier = Modifier.align(Alignment.Center)
-            )
-        }
-
-        state.status?.let { message ->
-            Text(
-                text = message,
-                color = Color.White,
-                fontSize = 13.sp,
+            ClipStrip(
+                clips = state.clips,
+                enabled = !state.isRecording && !state.isExporting,
+                onOpen = { previewIndex = it },
+                onDiscard = { discardIndex = it },
+                onMove = viewModel::moveClip,
                 modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(top = 120.dp)
-                    .background(ChromePill, RoundedCornerShape(8.dp))
-                    .padding(horizontal = 14.dp, vertical = 8.dp)
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .windowInsetsPadding(WindowInsets.navigationBars)
             )
         }
-
-        CameraControls(
-            clips = state.clips,
-            currentClipMs = state.currentClipMs,
-            recordedMs = state.recordedMs,
-            isRecording = state.isRecording,
-            isExporting = state.isExporting,
-            canUndo = state.hasClips && !state.isRecording && !state.isExporting,
-            canRecord = videoCapture != null && !state.isExporting,
-            canExport = state.hasClips && !state.isRecording && !state.isExporting,
-            flashOn = state.flashOn,
-            hasFlash = state.hasFlash,
-            formatLabel = state.formatLabel,
-            formatEnabled = !state.isRecording && !state.isExporting &&
-                state.availableFormats.isNotEmpty(),
-            onFlash = viewModel::toggleFlash,
-            onFlip = viewModel::switchLens,
-            onOpenFormat = { showSizePanel = true },
-            linearZoom = linearZoom,
-            zoomRatio = zoomRatio,
-            zoomStops = zoomStops,
-            onSelectZoom = { target ->
-                val cam = camera ?: return@CameraControls
-                val zoom = cam.cameraInfo.zoomState.value
-                val clamped = if (zoom != null) {
-                    target.coerceIn(zoom.minZoomRatio, zoom.maxZoomRatio)
-                } else {
-                    target
-                }
-                zoomGlide?.cancel()
-                zoomGlide = zoomScope.launch {
-                    animate(
-                        initialValue = zoomRatio,
-                        targetValue = clamped,
-                        animationSpec = tween(ZOOM_GLIDE_MS)
-                    ) { value, _ ->
-                        cam.cameraControl.setZoomRatio(value)
-                        zoomRatio = value
-                    }
-                    linearZoom = cam.cameraInfo.zoomState.value?.linearZoom ?: linearZoom
-                }
-            },
-            onUndo = { showDiscardDialog = true },
-            onRecordPress = viewModel::onRecordPressed,
-            onRecordReleaseAfterHold = viewModel::stopClip,
-            onZoomChange = { value ->
-                zoomGlide?.cancel()
-                linearZoom = value
-                camera?.cameraControl?.setLinearZoom(value)
-                zoomRatio = camera?.cameraInfo?.zoomState?.value?.zoomRatio ?: zoomRatio
-            },
-            onExport = { showExportDialog = true },
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .windowInsetsPadding(WindowInsets.safeDrawing)
-        )
 
         if (state.isExporting) {
             CircularProgressIndicator(
@@ -518,7 +536,7 @@ fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = vi
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .windowInsetsPadding(WindowInsets.safeDrawing)
-                    .padding(top = 40.dp, end = 62.dp)
+                    .padding(top = 150.dp, end = 62.dp)
             )
         }
 
@@ -534,7 +552,7 @@ fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = vi
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .windowInsetsPadding(WindowInsets.safeDrawing)
-                    .padding(top = 100.dp, end = 62.dp)
+                    .padding(top = 250.dp, end = 62.dp)
             )
         }
 
@@ -569,18 +587,31 @@ fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = vi
                     .windowInsetsPadding(WindowInsets.safeDrawing)
             )
         }
+
+        // Drawn over the camera rather than in its place, so the bound preview keeps its
+        // surface and comes back instantly when the player closes.
+        previewIndex?.let { index ->
+            state.clips.getOrNull(index)?.let { clip ->
+                ClipPlayer(
+                    clip = clip,
+                    index = index,
+                    count = state.clips.size,
+                    onClose = { previewIndex = null }
+                )
+            }
+        }
     }
 
-    if (showDiscardDialog) {
+    discardIndex?.let { index ->
         ConfirmDialog(
-            title = "Discard the last clip?",
+            title = "Discard clip ${index + 1}?",
             confirmLabel = "Discard",
             dismissLabel = "Cancel",
             onConfirm = {
-                showDiscardDialog = false
-                viewModel.discardLast()
+                discardIndex = null
+                viewModel.discardClip(index)
             },
-            onDismiss = { showDiscardDialog = false }
+            onDismiss = { discardIndex = null }
         )
     }
 
@@ -631,46 +662,68 @@ private fun bindCandidates(
  * camera, a ViewModel, or a device.
  */
 @Composable
-internal fun TopBar(canClear: Boolean, onClear: () -> Unit, modifier: Modifier = Modifier) {
+internal fun TopBar(
+    canClear: Boolean,
+    formatLabel: String,
+    formatEnabled: Boolean,
+    onClear: () -> Unit,
+    onOpenFormat: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     Row(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        if (canClear) GlyphButton(iconRes = R.drawable.ic_close, onClick = onClear)
+        if (canClear) {
+            GlyphButton(iconRes = R.drawable.ic_close, onClick = onClear)
+        } else {
+            Spacer(Modifier.size(44.dp))
+        }
+        FormatChip(label = formatLabel, enabled = formatEnabled, onClick = onOpenFormat)
     }
 }
 
-/**
- * Resolution over frame rate, the two-line "HD 30" tag from the reference. Tappable until the
- * first clip lands; after that the confirm button takes its slot.
- */
+/** Resolution and frame rate, tappable between clips. */
 @Composable
 private fun FormatChip(label: String, enabled: Boolean, onClick: () -> Unit) {
-    Text(
-        text = label.replace(" · ", "\n"),
-        style = ModeLabelStyle,
-        fontSize = 15.sp,
-        lineHeight = 15.sp,
-        textAlign = TextAlign.Center,
-        color = Color.White.copy(alpha = if (enabled) 1f else 0.4f),
+    Row(
         modifier = Modifier
-            .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(50))
+            .background(ChromePill)
             .pointerInput(enabled) { detectTapGestures(onTap = { if (enabled) onClick() }) }
-            .semantics { role = Role.Button }
-            .padding(horizontal = 4.dp, vertical = 6.dp)
-    )
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_resolution),
+            contentDescription = null,
+            tint = Color.White.copy(alpha = if (enabled) 1f else 0.4f),
+            modifier = Modifier.size(18.dp)
+        )
+        Text(
+            text = label,
+            style = ModeLabelStyle,
+            fontSize = 13.sp,
+            color = Color.White.copy(alpha = if (enabled) 1f else 0.4f)
+        )
+    }
 }
 
-/** The vertical control rail from the reference: timer, speed, aspect ratio. */
+/** The vertical control rail from the reference: flip, flash, timer, speed, aspect ratio. */
 @Composable
 internal fun SideRail(
+    flashOn: Boolean,
+    hasFlash: Boolean,
     speed: Float,
     aspectLabel: String,
     enabled: Boolean,
     aspectEnabled: Boolean,
+    onFlip: () -> Unit,
+    onFlash: () -> Unit,
     onTimer: () -> Unit,
     onSpeed: () -> Unit,
     onAspect: () -> Unit,
@@ -681,6 +734,26 @@ internal fun SideRail(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        RailButton(
+            iconRes = R.drawable.ic_flip_camera,
+            contentDescription = "Flip camera",
+            enabled = enabled,
+            onClick = onFlip
+        )
+        RailButton(
+            iconRes = if (flashOn) R.drawable.ic_flash_on else R.drawable.ic_flash_off,
+            contentDescription = "Flash",
+            enabled = enabled && hasFlash,
+            active = flashOn,
+            onClick = onFlash
+        )
+        // The reference separates the lens controls from the creative ones with a hairline.
+        Box(
+            modifier = Modifier
+                .padding(vertical = 2.dp)
+                .size(width = 22.dp, height = 1.dp)
+                .background(Color.White.copy(alpha = 0.35f))
+        )
         RailButton(
             iconRes = R.drawable.ic_timer,
             contentDescription = "Self timer",
@@ -754,13 +827,6 @@ internal fun CameraControls(
     canUndo: Boolean,
     canRecord: Boolean,
     canExport: Boolean,
-    flashOn: Boolean,
-    hasFlash: Boolean,
-    formatLabel: String,
-    formatEnabled: Boolean,
-    onFlash: () -> Unit,
-    onFlip: () -> Unit,
-    onOpenFormat: () -> Unit,
     linearZoom: Float,
     zoomRatio: Float,
     zoomStops: List<Float>,
@@ -814,50 +880,22 @@ internal fun CameraControls(
                 modifier = Modifier.align(Alignment.Center)
             )
 
-            // The reference's bottom row: flash and the take controls on the left, flip and the
-            // format tag on the right. Once a take exists the confirm button takes the tag's slot.
-            val idle = !isRecording && !isExporting
-            Row(
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .padding(start = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                RailButton(
-                    iconRes = if (flashOn) R.drawable.ic_flash_on else R.drawable.ic_flash_off,
-                    contentDescription = "Flash",
-                    enabled = idle && hasFlash,
-                    active = flashOn,
-                    onClick = onFlash
-                )
-                AnimatedVisibility(visible = canUndo, enter = fadeIn(), exit = fadeOut()) {
-                    TagButton(iconRes = R.drawable.ic_discard_clip, onClick = onUndo)
-                }
-            }
-
             Row(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .padding(end = 16.dp),
+                    .padding(end = 20.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                RailButton(
-                    iconRes = R.drawable.ic_flip_camera,
-                    contentDescription = "Flip camera",
-                    enabled = idle,
-                    onClick = onFlip
-                )
+                AnimatedVisibility(visible = canUndo, enter = fadeIn(), exit = fadeOut()) {
+                    TagButton(iconRes = R.drawable.ic_discard_clip, onClick = onUndo)
+                }
                 AnimatedVisibility(
                     visible = canExport || isExporting,
                     enter = fadeIn(),
                     exit = fadeOut()
                 ) {
                     ConfirmButton(enabled = canExport, onClick = onExport)
-                }
-                AnimatedVisibility(visible = !hasTake, enter = fadeIn(), exit = fadeOut()) {
-                    FormatChip(label = formatLabel, enabled = formatEnabled, onClick = onOpenFormat)
                 }
             }
         }

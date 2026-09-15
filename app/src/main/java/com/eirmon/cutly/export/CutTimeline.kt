@@ -28,6 +28,67 @@ internal object CutTimeline {
         }
     }
 
+    /**
+     * How far one clip's handles may travel: up to the nearest other clip on each side *on the
+     * source clock*. List neighbours are no guide once clips have been dragged out of source
+     * order.
+     */
+    fun sourceBounds(keep: List<Span>, index: Int, totalMs: Long): Pair<Long, Long> {
+        val span = keep[index]
+        val before = keep.filterIndexed { i, other -> i != index && other.endMs <= span.startMs }
+            .maxOfOrNull { it.endMs } ?: 0L
+        val after = keep.filterIndexed { i, other -> i != index && other.startMs >= span.endMs }
+            .minOfOrNull { it.startMs } ?: totalMs
+        return before to after
+    }
+
+    /** Moves one clip to another slot in the output order. */
+    fun move(keep: List<Span>, from: Int, to: Int): List<Span> {
+        if (from == to || from !in keep.indices || to !in keep.indices) return keep
+        return keep.toMutableList().apply { add(to, removeAt(from)) }
+    }
+
+    /**
+     * Takes hand-deleted source regions back out of a freshly detected list, so a re-detection
+     * never resurrects footage the user removed on purpose.
+     */
+    fun subtract(spans: List<Span>, removed: List<Span>, minimumMs: Long = 100L): List<Span> {
+        if (removed.isEmpty()) return spans
+        return spans.flatMap { span ->
+            var pieces = listOf(span)
+            for (cut in removed) {
+                pieces = pieces.flatMap { piece ->
+                    when {
+                        cut.endMs <= piece.startMs || cut.startMs >= piece.endMs -> listOf(piece)
+                        else -> listOfNotNull(
+                            Span(piece.startMs, cut.startMs).takeIf { it.durationMs > 0 },
+                            Span(cut.endMs, piece.endMs).takeIf { it.durationMs > 0 }
+                        )
+                    }
+                }
+            }
+            pieces
+        }.filter { it.durationMs >= minimumMs }
+    }
+
+    /**
+     * Puts re-detected spans into the order the previous cut had: a new span goes where the old
+     * clip it overlaps used to be, and spans in untouched footage fall in by source position.
+     */
+    fun orderLike(previous: List<Span>, spans: List<Span>): List<Span> {
+        if (previous.isEmpty()) return spans.sortedBy { it.startMs }
+        fun slot(span: Span): Double {
+            val overlapping = previous.indexOfFirst { it.startMs < span.endMs && span.startMs < it.endMs }
+            if (overlapping >= 0) return overlapping.toDouble()
+            // Between old clips on the source clock: after the last one that ends before it.
+            val precedingIndex = previous.withIndex()
+                .filter { (_, old) -> old.endMs <= span.startMs }
+                .maxByOrNull { (_, old) -> old.endMs }?.index
+            return (precedingIndex ?: -1) + 0.5
+        }
+        return spans.sortedWith(compareBy({ slot(it) }, { it.startMs }))
+    }
+
     /** Applies one clip's trim handles while keeping the source timeline valid. */
     fun trim(
         keep: List<Span>,
@@ -38,8 +99,7 @@ internal object CutTimeline {
         minimumMs: Long = 100L
     ): List<Span> {
         require(index in keep.indices) { "Unknown clip" }
-        val before = keep.getOrNull(index - 1)?.endMs ?: 0L
-        val after = keep.getOrNull(index + 1)?.startMs ?: totalMs
+        val (before, after) = sourceBounds(keep, index, totalMs)
         val minimum = minOf(minimumMs, after - before).coerceAtLeast(1L)
         val start = startMs.coerceIn(before, after - minimum)
         val end = endMs.coerceIn(start + minimum, after)
@@ -56,11 +116,12 @@ internal object CutTimeline {
         require(keep.all { it.startMs >= 0 && it.endMs > it.startMs }) {
             "Cut spans must be forward ranges on the source timeline"
         }
-        require(keep.zipWithNext().all { (first, second) -> first.endMs <= second.startMs }) {
-            "Cut spans must be ordered and non-overlapping"
+        val bySource = keep.sortedBy { it.startMs }
+        require(bySource.zipWithNext().all { (first, second) -> first.endMs <= second.startMs }) {
+            "Cut spans must not overlap"
         }
 
-        val requestedEndUs = Math.multiplyExact(keep.last().endMs, MICROS_PER_MILLISECOND)
+        val requestedEndUs = Math.multiplyExact(bySource.last().endMs, MICROS_PER_MILLISECOND)
         return maxOf(measuredDurationUs?.takeIf { it > 0 } ?: 0L, requestedEndUs)
     }
 

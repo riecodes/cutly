@@ -288,15 +288,29 @@ class CameraViewModel(
         recorder.stop()
     }
 
-    fun discardLast() {
+    fun discardLast() = discardClip(_state.value.clips.lastIndex)
+
+    /** Drops one clip from anywhere in the take; every clip is its own file, so nothing re-encodes. */
+    fun discardClip(index: Int) {
         if (_state.value.isRecording) return
         val clips = _state.value.clips
-        if (clips.isEmpty()) return
+        val clip = clips.getOrNull(index) ?: return
 
-        val remaining = clips.dropLast(1)
-        clips.last().file.delete()
+        val remaining = clips.filterIndexed { i, _ -> i != index }
+        clip.file.delete()
         store.save(remaining)
         _state.update { it.copy(clips = remaining, status = "Clip discarded") }
+    }
+
+    /** Reorders the take; the merge follows list order, so this is the whole edit. */
+    fun moveClip(from: Int, to: Int) {
+        if (_state.value.isRecording || from == to) return
+        val clips = _state.value.clips
+        if (from !in clips.indices || to !in clips.indices) return
+
+        val reordered = clips.toMutableList().apply { add(to, removeAt(from)) }
+        store.save(reordered)
+        _state.update { it.copy(clips = reordered) }
     }
 
     fun discardAll() {

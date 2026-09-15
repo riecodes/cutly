@@ -11,7 +11,9 @@ import com.eirmon.cutly.audio.PcmDecoder
 import com.eirmon.cutly.audio.SilenceDetector
 import com.eirmon.cutly.audio.SilenceSettings
 import com.eirmon.cutly.audio.Span
+import androidx.camera.core.CameraSelector
 import com.eirmon.cutly.camera.ClipProbe
+import com.eirmon.cutly.model.Clip
 import com.eirmon.cutly.data.AppSettings
 import com.eirmon.cutly.data.Project
 import com.eirmon.cutly.data.ProjectStore
@@ -35,6 +37,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 import java.text.DateFormat
 import java.util.Date
 
@@ -82,6 +85,8 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         val originalMs: Long,
         /** True once a clip was trimmed or deleted by hand; the sliders then leave [keep] alone. */
         val manualEdits: Boolean = false,
+        /** Source regions deleted by hand; a re-detection leaves them out. */
+        val removed: List<Span> = emptyList(),
         /**
          * Captions on the *source* timeline, or null until they are asked for.
          *
@@ -198,6 +203,72 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    /** Joins a gallery video into the open project, as the clip at [at] in the output order. */
+    fun appendImport(video: Uri, at: Int) = append(at, "Copying the video…") {
+        val app = getApplication<Application>()
+        val temp = File(app.cacheDir, "cutly_append_${System.currentTimeMillis()}.mp4")
+        val input = app.contentResolver.openInputStream(video)
+            ?: throw IOException("The selected video cannot be opened")
+        input.use { stream -> temp.outputStream().use(stream::copyTo) }
+        if (temp.length() == 0L) throw IOException("The selected video is empty")
+        temp
+    }
+
+    /** Joins a merged camera take (already a cache file) into the open project at [at]. */
+    fun appendTake(file: File, at: Int) = append(at, "Adding the take…") { file }
+
+    /**
+     * The footage itself is joined onto the end of the source file, but the clip for it is
+     * slotted into the output order at [at], so it plays wherever the user was looking. The
+     * existing cut is left as it is, for the user to trim, split or re-detect. Captions stay on
+     * their old timestamps, which the join does not move; the new part is simply uncaptioned
+     * until regenerated.
+     */
+    private fun append(at: Int, status: String, produce: suspend () -> File) {
+        val review = _state.value.review ?: return
+        if (_state.value.isBusy || review.savedName != null) return
+        _state.update { it.copy(isBusy = true, status = status, error = null) }
+        viewModelScope.launch {
+            val result = runCatching {
+                val added = withContext(Dispatchers.IO) { produce() }
+                val merged = try {
+                    _state.update { it.copy(status = "Joining the clips…") }
+                    exporter.merge(listOf(clipOf(store.source(review.projectId)), clipOf(added)))
+                } finally {
+                    added.delete()
+                }
+                val project = withContext(Dispatchers.IO) {
+                    store.replaceSource(review.projectId, merged)
+                } ?: throw IllegalStateException("The project is no longer on disk")
+                val slot = at.coerceIn(0, review.keep.size)
+                project.copy(
+                    keep = review.keep.toMutableList().apply {
+                        add(slot, Span(review.originalMs, project.durationMs))
+                    },
+                    removed = review.removed,
+                    manualEdits = true
+                ).also { withContext(Dispatchers.IO) { store.save(it) } }
+            }
+            result.fold(
+                onSuccess = { project ->
+                    _state.update { it.copy(review = null) }
+                    open(project)
+                },
+                onFailure = { failure -> fail("Could not add the video", failure) }
+            )
+        }
+    }
+
+    private suspend fun clipOf(file: File): Clip {
+        val info = withContext(Dispatchers.IO) { ClipProbe.probeMetadata(file) }
+        return Clip(
+            file = file,
+            durationMs = (info?.durationUs ?: 0L) / 1000,
+            lensFacing = CameraSelector.LENS_FACING_BACK,
+            heightPx = info?.height ?: 1080
+        )
+    }
+
     fun open(id: String) {
         if (_state.value.isBusy) return
         if (_state.value.review?.projectId == id) return
@@ -267,15 +338,20 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                 onSuccess = { measured ->
                     analysis = measured
                     val durationMs = measured.levels.durationMs
-                    val stored = measured.project.keep.filter { it.endMs <= durationMs }
+                    val stored = measured.project.keep
+                        .filter { it.startMs < durationMs }
+                        .map { if (it.endMs > durationMs) it.copy(endMs = durationMs) else it }
                     val review = Review(
                         projectId = project.id,
                         name = project.name,
                         source = source,
                         settings = project.settings,
-                        keep = stored.ifEmpty { detect(measured.levels, project.settings) },
+                        keep = stored.ifEmpty {
+                            CutTimeline.subtract(detect(measured.levels, project.settings), project.removed)
+                        },
                         originalMs = durationMs,
                         manualEdits = project.manualEdits && stored.isNotEmpty(),
+                        removed = project.removed,
                         captions = project.captions,
                         captionsEnabled = project.captionsEnabled && project.captions != null,
                         savedName = project.savedName
@@ -310,14 +386,30 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         val levels = analysis?.levels ?: return
         edit { review ->
             if (review.manualEdits) review.copy(settings = settings)
-            else review.copy(settings = settings, keep = detect(levels, settings))
+            else review.copy(settings = settings, keep = redetected(review, levels, settings))
         }
     }
 
-    /** Throws away the hand edits and lets the sliders decide again. */
+    /**
+     * Lets the sliders decide the cuts again. Trims and splits are forgotten; footage deleted by
+     * hand stays deleted, and clips keep the order they were dragged or inserted into.
+     */
     fun redetect() {
         val levels = analysis?.levels ?: return
-        edit { review -> review.copy(manualEdits = false, keep = detect(levels, review.settings)) }
+        edit { review ->
+            review.copy(manualEdits = false, keep = redetected(review, levels, review.settings))
+        }
+    }
+
+    private fun redetected(review: Review, levels: PcmDecoder.Levels, settings: SilenceSettings): List<Span> =
+        CutTimeline.orderLike(review.keep, CutTimeline.subtract(detect(levels, settings), review.removed))
+
+    /** Drags one clip to another slot in the output order. */
+    fun moveClip(from: Int, to: Int) {
+        edit { review ->
+            val moved = CutTimeline.move(review.keep, from, to)
+            if (moved === review.keep) review else review.copy(manualEdits = true, keep = moved)
+        }
     }
 
     /** Trims one generated clip without forcing the detector to rebuild the whole timeline. */
@@ -331,10 +423,15 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    /** Deletes a clip for good: the region is remembered so a re-detection cannot bring it back. */
     fun removeClip(index: Int) {
         edit { review ->
-            if (index !in review.keep.indices) review
-            else review.copy(manualEdits = true, keep = review.keep.filterIndexed { i, _ -> i != index })
+            val clip = review.keep.getOrNull(index) ?: return@edit review
+            review.copy(
+                manualEdits = true,
+                keep = review.keep.filterIndexed { i, _ -> i != index },
+                removed = review.removed + clip
+            )
         }
     }
 
@@ -399,6 +496,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             updatedAt = System.currentTimeMillis(),
             settings = review.settings,
             keep = review.keep,
+            removed = review.removed,
             manualEdits = review.manualEdits,
             captions = review.captions,
             captionsEnabled = review.captionsEnabled,
