@@ -26,6 +26,7 @@ import androidx.camera.video.Quality
 import androidx.camera.video.Recorder
 import androidx.camera.video.VideoCapture
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -48,6 +49,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -60,6 +62,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -92,7 +95,9 @@ import com.eirmon.cutly.ui.theme.ChromePill
 import com.eirmon.cutly.ui.theme.ModeLabelStyle
 import com.eirmon.cutly.ui.theme.Scrim
 import com.eirmon.cutly.ui.theme.TimerStyle
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.io.File
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
@@ -132,6 +137,9 @@ fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = vi
     var zoomRatio by remember { mutableFloatStateOf(1f) }
     var zoomStops by remember { mutableStateOf(emptyList<Float>()) }
     var pinchStartRatio by remember { mutableFloatStateOf(1f) }
+    // A tap on a zoom stop glides there rather than jumping; a pinch or a second tap takes over.
+    val zoomScope = rememberCoroutineScope()
+    var zoomGlide by remember { mutableStateOf<Job?>(null) }
     var showExportDialog by remember { mutableStateOf(false) }
     var showDiscardDialog by remember { mutableStateOf(false) }
     var showSizePanel by remember { mutableStateOf(false) }
@@ -294,10 +302,11 @@ fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = vi
         if (request != null) {
             CameraXViewfinder(
                 surfaceRequest = request,
-                // Letterboxed to the chosen shape, as the reference does, rather than filling the
-                // screen and hiding what the crop will take.
+                // Letterboxed to the chosen shape and pinned under the status bar, as the
+                // reference does, rather than filling the screen and hiding what the crop takes.
                 modifier = Modifier
-                    .align(Alignment.Center)
+                    .align(Alignment.TopCenter)
+                    .windowInsetsPadding(WindowInsets.statusBars)
                     .aspectRatio(state.aspect.ratio)
                     .clip(RoundedCornerShape(22.dp))
                     .onSizeChanged { viewfinderSize = it }
@@ -306,6 +315,7 @@ fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = vi
                     .viewfinderGestures(
                         onFlip = viewModel::switchLens,
                         onPinchStart = {
+                            zoomGlide?.cancel()
                             pinchStartRatio = camera?.cameraInfo?.zoomState?.value?.zoomRatio ?: 1f
                         },
                         onPinchScale = { scale ->
@@ -372,25 +382,17 @@ fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = vi
 
         TopBar(
             canClear = state.hasClips && !state.isRecording && !state.isExporting,
-            formatLabel = state.formatLabel,
-            formatEnabled = !state.isRecording && !state.isExporting &&
-                state.availableFormats.isNotEmpty(),
             onClear = viewModel::discardAll,
-            onOpenFormat = { showSizePanel = true },
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .windowInsetsPadding(WindowInsets.safeDrawing)
         )
 
         SideRail(
-            flashOn = state.flashOn,
-            hasFlash = state.hasFlash,
             speed = state.speed,
             aspectLabel = state.aspect.label,
             enabled = !state.isRecording && !state.isExporting,
             aspectEnabled = !state.isRecording && !state.isExporting && !state.hasClips,
-            onFlip = viewModel::switchLens,
-            onFlash = viewModel::toggleFlash,
             onTimer = { showCountdownSheet = true },
             onSpeed = { showSpeedPicker = !showSpeedPicker },
             onAspect = { showAspectPicker = !showAspectPicker },
@@ -432,24 +434,43 @@ fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = vi
             canUndo = state.hasClips && !state.isRecording && !state.isExporting,
             canRecord = videoCapture != null && !state.isExporting,
             canExport = state.hasClips && !state.isRecording && !state.isExporting,
+            flashOn = state.flashOn,
+            hasFlash = state.hasFlash,
+            formatLabel = state.formatLabel,
+            formatEnabled = !state.isRecording && !state.isExporting &&
+                state.availableFormats.isNotEmpty(),
+            onFlash = viewModel::toggleFlash,
+            onFlip = viewModel::switchLens,
+            onOpenFormat = { showSizePanel = true },
             linearZoom = linearZoom,
             zoomRatio = zoomRatio,
             zoomStops = zoomStops,
             onSelectZoom = { target ->
-                val zoom = camera?.cameraInfo?.zoomState?.value
+                val cam = camera ?: return@CameraControls
+                val zoom = cam.cameraInfo.zoomState.value
                 val clamped = if (zoom != null) {
                     target.coerceIn(zoom.minZoomRatio, zoom.maxZoomRatio)
                 } else {
                     target
                 }
-                camera?.cameraControl?.setZoomRatio(clamped)
-                zoomRatio = clamped
-                linearZoom = camera?.cameraInfo?.zoomState?.value?.linearZoom ?: linearZoom
+                zoomGlide?.cancel()
+                zoomGlide = zoomScope.launch {
+                    animate(
+                        initialValue = zoomRatio,
+                        targetValue = clamped,
+                        animationSpec = tween(ZOOM_GLIDE_MS)
+                    ) { value, _ ->
+                        cam.cameraControl.setZoomRatio(value)
+                        zoomRatio = value
+                    }
+                    linearZoom = cam.cameraInfo.zoomState.value?.linearZoom ?: linearZoom
+                }
             },
             onUndo = { showDiscardDialog = true },
             onRecordPress = viewModel::onRecordPressed,
             onRecordReleaseAfterHold = viewModel::stopClip,
             onZoomChange = { value ->
+                zoomGlide?.cancel()
                 linearZoom = value
                 camera?.cameraControl?.setLinearZoom(value)
                 zoomRatio = camera?.cameraInfo?.zoomState?.value?.zoomRatio ?: zoomRatio
@@ -497,7 +518,7 @@ fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = vi
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .windowInsetsPadding(WindowInsets.safeDrawing)
-                    .padding(top = 150.dp, end = 62.dp)
+                    .padding(top = 40.dp, end = 62.dp)
             )
         }
 
@@ -513,7 +534,7 @@ fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = vi
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .windowInsetsPadding(WindowInsets.safeDrawing)
-                    .padding(top = 250.dp, end = 62.dp)
+                    .padding(top = 100.dp, end = 62.dp)
             )
         }
 
@@ -610,68 +631,46 @@ private fun bindCandidates(
  * camera, a ViewModel, or a device.
  */
 @Composable
-internal fun TopBar(
-    canClear: Boolean,
-    formatLabel: String,
-    formatEnabled: Boolean,
-    onClear: () -> Unit,
-    onOpenFormat: () -> Unit,
-    modifier: Modifier = Modifier
-) {
+internal fun TopBar(canClear: Boolean, onClear: () -> Unit, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        if (canClear) {
-            GlyphButton(iconRes = R.drawable.ic_close, onClick = onClear)
-        } else {
-            Spacer(Modifier.size(44.dp))
-        }
-        FormatChip(label = formatLabel, enabled = formatEnabled, onClick = onOpenFormat)
+        if (canClear) GlyphButton(iconRes = R.drawable.ic_close, onClick = onClear)
     }
 }
 
-/** Resolution and frame rate, tappable between clips. */
+/**
+ * Resolution over frame rate, the two-line "HD 30" tag from the reference. Tappable until the
+ * first clip lands; after that the confirm button takes its slot.
+ */
 @Composable
 private fun FormatChip(label: String, enabled: Boolean, onClick: () -> Unit) {
-    Row(
+    Text(
+        text = label.replace(" · ", "\n"),
+        style = ModeLabelStyle,
+        fontSize = 15.sp,
+        lineHeight = 15.sp,
+        textAlign = TextAlign.Center,
+        color = Color.White.copy(alpha = if (enabled) 1f else 0.4f),
         modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .background(ChromePill)
+            .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
+            .clip(RoundedCornerShape(14.dp))
             .pointerInput(enabled) { detectTapGestures(onTap = { if (enabled) onClick() }) }
-            .padding(horizontal = 12.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        Icon(
-            painter = painterResource(R.drawable.ic_resolution),
-            contentDescription = null,
-            tint = Color.White.copy(alpha = if (enabled) 1f else 0.4f),
-            modifier = Modifier.size(18.dp)
-        )
-        Text(
-            text = label,
-            style = ModeLabelStyle,
-            fontSize = 13.sp,
-            color = Color.White.copy(alpha = if (enabled) 1f else 0.4f)
-        )
-    }
+            .semantics { role = Role.Button }
+            .padding(horizontal = 4.dp, vertical = 6.dp)
+    )
 }
 
-/** The vertical control rail from the reference: flip, flash, timer, speed, aspect ratio. */
+/** The vertical control rail from the reference: timer, speed, aspect ratio. */
 @Composable
 internal fun SideRail(
-    flashOn: Boolean,
-    hasFlash: Boolean,
     speed: Float,
     aspectLabel: String,
     enabled: Boolean,
     aspectEnabled: Boolean,
-    onFlip: () -> Unit,
-    onFlash: () -> Unit,
     onTimer: () -> Unit,
     onSpeed: () -> Unit,
     onAspect: () -> Unit,
@@ -682,26 +681,6 @@ internal fun SideRail(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        RailButton(
-            iconRes = R.drawable.ic_flip_camera,
-            contentDescription = "Flip camera",
-            enabled = enabled,
-            onClick = onFlip
-        )
-        RailButton(
-            iconRes = if (flashOn) R.drawable.ic_flash_on else R.drawable.ic_flash_off,
-            contentDescription = "Flash",
-            enabled = enabled && hasFlash,
-            active = flashOn,
-            onClick = onFlash
-        )
-        // The reference separates the lens controls from the creative ones with a hairline.
-        Box(
-            modifier = Modifier
-                .padding(vertical = 2.dp)
-                .size(width = 22.dp, height = 1.dp)
-                .background(Color.White.copy(alpha = 0.35f))
-        )
         RailButton(
             iconRes = R.drawable.ic_timer,
             contentDescription = "Self timer",
@@ -775,6 +754,13 @@ internal fun CameraControls(
     canUndo: Boolean,
     canRecord: Boolean,
     canExport: Boolean,
+    flashOn: Boolean,
+    hasFlash: Boolean,
+    formatLabel: String,
+    formatEnabled: Boolean,
+    onFlash: () -> Unit,
+    onFlip: () -> Unit,
+    onOpenFormat: () -> Unit,
     linearZoom: Float,
     zoomRatio: Float,
     zoomStops: List<Float>,
@@ -828,22 +814,50 @@ internal fun CameraControls(
                 modifier = Modifier.align(Alignment.Center)
             )
 
+            // The reference's bottom row: flash and the take controls on the left, flip and the
+            // format tag on the right. Once a take exists the confirm button takes the tag's slot.
+            val idle = !isRecording && !isExporting
             Row(
                 modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 20.dp),
+                    .align(Alignment.CenterStart)
+                    .padding(start = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                RailButton(
+                    iconRes = if (flashOn) R.drawable.ic_flash_on else R.drawable.ic_flash_off,
+                    contentDescription = "Flash",
+                    enabled = idle && hasFlash,
+                    active = flashOn,
+                    onClick = onFlash
+                )
                 AnimatedVisibility(visible = canUndo, enter = fadeIn(), exit = fadeOut()) {
                     TagButton(iconRes = R.drawable.ic_discard_clip, onClick = onUndo)
                 }
+            }
+
+            Row(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                RailButton(
+                    iconRes = R.drawable.ic_flip_camera,
+                    contentDescription = "Flip camera",
+                    enabled = idle,
+                    onClick = onFlip
+                )
                 AnimatedVisibility(
                     visible = canExport || isExporting,
                     enter = fadeIn(),
                     exit = fadeOut()
                 ) {
                     ConfirmButton(enabled = canExport, onClick = onExport)
+                }
+                AnimatedVisibility(visible = !hasTake, enter = fadeIn(), exit = fadeOut()) {
+                    FormatChip(label = formatLabel, enabled = formatEnabled, onClick = onOpenFormat)
                 }
             }
         }
@@ -911,8 +925,9 @@ internal fun zoomStopsFor(minRatio: Float, maxRatio: Float): List<Float> {
     val wide = (minRatio * 10f).roundToInt() / 10f
     return buildList {
         if (minRatio < 0.95f) add(wide)
-        addAll(ROUND_STOPS.filter { it in minRatio..maxRatio && it > wide + STOP_TOLERANCE })
-    }.take(MAX_STOPS)
+        // A lens whose floor is a hair above 1.0 still gets a 1x stop; the tap clamps it anyway.
+        addAll(ROUND_STOPS.filter { it >= minRatio - STOP_TOLERANCE && it <= maxRatio })
+    }.distinct().take(MAX_STOPS)
 }
 
 /** Round steps a phone camera is expected to offer, in the order the pill lays them out. */
@@ -923,6 +938,9 @@ private const val MAX_STOPS = 5
 
 /** How far past a stop the ratio can sit and still count as being on it. */
 private const val STOP_TOLERANCE = 0.05f
+
+/** How long a tap on a zoom stop takes to glide there. */
+private const val ZOOM_GLIDE_MS = 350
 
 /** How long a freshly bound lens is given to publish its zoom range, and how often it is read. */
 private const val ZOOM_STATE_TIMEOUT_MS = 1_000L
