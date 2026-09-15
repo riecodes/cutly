@@ -22,14 +22,15 @@ import com.eirmon.cutly.ui.theme.SheetSurface
 import com.eirmon.cutly.ui.theme.TikTokSans
 
 /**
- * The stacked speed column from the reference — fastest at the top, selected row inverted to
+ * The stacked option column from the reference (speed, aspect ratio): selected row inverted to
  * white. Anchored beside the rail rather than centred, so the rail icon stays visible.
  */
 @Composable
-internal fun SpeedPicker(
-    options: List<Float>,
-    selected: Float,
-    onSelect: (Float) -> Unit,
+internal fun <T> OptionPicker(
+    options: List<T>,
+    selected: T,
+    label: (T) -> String,
+    onSelect: (T) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -38,18 +39,18 @@ internal fun SpeedPicker(
             .clip(RoundedCornerShape(14.dp))
             .background(SheetSurface)
     ) {
-        options.forEach { speed ->
-            val isSelected = speed == selected
+        options.forEach { option ->
+            val isSelected = option == selected
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(if (isSelected) Color.White else Color.Transparent)
-                    .pointerInput(speed) { detectTapGestures(onTap = { onSelect(speed) }) }
+                    .pointerInput(option) { detectTapGestures(onTap = { onSelect(option) }) }
                     .padding(vertical = 13.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = formatSpeed(speed),
+                    text = label(option),
                     color = if (isSelected) Color.Black else Color.White,
                     fontFamily = TikTokSans,
                     fontWeight = FontWeight.SemiBold,

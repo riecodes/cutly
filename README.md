@@ -73,6 +73,10 @@ That single choice is what makes discard, per-clip export, and mid-take lens swi
 - **Zoom stops** — the pill above the record button offers the round ratios the *bound lens* can
   actually reach, read off `ZoomState`, plus its own minimum when it goes wider than 1x. Between
   stops — mid-pinch, or after a slide on the record button — the active stop shows the live ratio.
+- **Aspect ratio** — 9:16, 4:5, 1:1 or 16:9 from the rail. One CameraX `ViewPort` on the
+  `SessionConfig` crops the preview and the recording alike, and the viewfinder is letterboxed to
+  the same shape, so what is shown is what is saved. Locked once the take has a clip, since a
+  merge cannot reconcile two frame shapes.
 - **Process death** — the clip list is written to `cache/clips/session.idx` after every clip, and
   restored on launch. Android kills backgrounded camera apps aggressively.
 - **Rotation** — the activity is locked to portrait, so an `OrientationEventListener` feeds

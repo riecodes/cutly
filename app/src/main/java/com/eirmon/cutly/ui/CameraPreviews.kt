@@ -69,11 +69,14 @@ private fun BoxScope.PreviewControls(
         flashOn = false,
         hasFlash = true,
         speed = if (hasTake) 2f else 1f,
+        aspectLabel = "9:16",
         enabled = !isRecording,
+        aspectEnabled = !isRecording && !hasTake,
         onFlip = {},
         onFlash = {},
         onTimer = {},
         onSpeed = {},
+        onAspect = {},
         modifier = Modifier
             .align(Alignment.TopEnd)
             .padding(top = 64.dp, end = 6.dp)
@@ -150,9 +153,10 @@ private fun PreviewCountdownSheet() = PreviewShell {
 @Preview(name = "6 · Speed picker", widthDp = 360, heightDp = 780)
 @Composable
 private fun PreviewSpeedPicker() = PreviewShell {
-    SpeedPicker(
+    OptionPicker(
         options = CameraViewModel.SPEED_OPTIONS,
         selected = 1f,
+        label = ::formatSpeed,
         onSelect = {},
         modifier = Modifier
             .align(Alignment.TopEnd)

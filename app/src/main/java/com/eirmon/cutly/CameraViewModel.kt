@@ -53,7 +53,9 @@ class CameraViewModel(
         val countdownRemaining: Int = 0,
         val speed: Float = 1f,
         /** Optional per-clip cap set from the countdown sheet. Null means run until stopped. */
-        val clipLimitMs: Long? = null
+        val clipLimitMs: Long? = null,
+        /** Frame shape, applied as a CameraX ViewPort crop. Locked once the take has a clip. */
+        val aspect: Aspect = Aspect.PORTRAIT
     ) {
         val recordedMs: Long
             get() = clips.sumOf { it.outputDurationMs } + (currentClipMs / speed).toLong()
@@ -75,7 +77,8 @@ class CameraViewModel(
             lensFacing = handle[KEY_LENS] ?: CameraSelector.LENS_FACING_BACK,
             speed = handle[KEY_SPEED] ?: 1f,
             timerSeconds = handle[KEY_TIMER] ?: 3,
-            flashOn = handle[KEY_FLASH] ?: false
+            flashOn = handle[KEY_FLASH] ?: false,
+            aspect = handle.get<String>(KEY_ASPECT)?.let { Aspect.valueOf(it) } ?: Aspect.PORTRAIT
         )
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -385,6 +388,17 @@ class CameraViewModel(
         startCountdown(current.timerSeconds)
     }
 
+    /**
+     * Aspect applies at capture, so it cannot change once the take has a clip: the merge would
+     * otherwise have to reconcile two frame shapes.
+     */
+    fun setAspect(aspect: Aspect) {
+        val current = _state.value
+        if (current.isRecording || current.isExporting || current.hasClips) return
+        _state.update { it.copy(aspect = aspect) }
+        handle[KEY_ASPECT] = aspect.name
+    }
+
     /** Speed applies at export, so it can change between clips and each clip keeps its own. */
     fun setSpeed(speed: Float) {
         if (_state.value.isRecording) return
@@ -464,8 +478,19 @@ class CameraViewModel(
     fun resolveFormat(available: List<VideoFormat>): VideoFormat? =
         FormatCatalog.resolve(_state.value.preferredFormat, available)
 
+    /** The frame shapes on offer, as the reference lists them. Width:height in portrait. */
+    enum class Aspect(val label: String, val width: Int, val height: Int) {
+        PORTRAIT("9:16", 9, 16),
+        FOUR_FIVE("4:5", 4, 5),
+        SQUARE("1:1", 1, 1),
+        LANDSCAPE("16:9", 16, 9);
+
+        val ratio: Float get() = width.toFloat() / height
+    }
+
     companion object {
         private const val KEY_LENS = "lens"
+        private const val KEY_ASPECT = "aspect"
         private const val KEY_SPEED = "speed"
         private const val KEY_TIMER = "timer"
         private const val KEY_FLASH = "flash"

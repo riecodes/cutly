@@ -7,6 +7,7 @@ import android.net.Uri
 import android.provider.Settings
 import android.content.pm.PackageManager
 import android.util.Range
+import android.util.Rational
 import android.view.OrientationEventListener
 import android.view.Surface
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -19,6 +20,7 @@ import androidx.camera.core.Preview
 import androidx.camera.core.SurfaceOrientedMeteringPointFactory
 import androidx.camera.core.SessionConfig
 import androidx.camera.core.SurfaceRequest
+import androidx.camera.core.ViewPort
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.Quality
 import androidx.camera.video.Recorder
@@ -38,6 +40,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -133,8 +136,9 @@ fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = vi
     var showDiscardDialog by remember { mutableStateOf(false) }
     var showSizePanel by remember { mutableStateOf(false) }
     var showSpeedPicker by remember { mutableStateOf(false) }
+    var showAspectPicker by remember { mutableStateOf(false) }
     var showCountdownSheet by remember { mutableStateOf(false) }
-    val anyPanelOpen = showSizePanel || showSpeedPicker || showCountdownSheet
+    val anyPanelOpen = showSizePanel || showSpeedPicker || showAspectPicker || showCountdownSheet
 
     LaunchedEffect(state.takeForEditor) {
         state.takeForEditor?.let { merged ->
@@ -143,9 +147,9 @@ fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = vi
         }
     }
 
-    // Rebinds on first grant, on every lens switch, and on every format change. A bound
+    // Rebinds on first grant, on every lens switch, and on every format or aspect change. A bound
     // VideoCapture cannot survive a rebind, so the ViewModel is handed the new one each time.
-    LaunchedEffect(hasCameraPermission, state.lensFacing, state.preferredFormat) {
+    LaunchedEffect(hasCameraPermission, state.lensFacing, state.preferredFormat, state.aspect) {
         if (!hasCameraPermission) return@LaunchedEffect
 
         val provider = context.awaitCameraProvider()
@@ -186,7 +190,14 @@ fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = vi
                 forceFrameRate = if (forced) fps else null
             )
 
+            // One ViewPort crops the preview and the recording alike, so the frame the user sees
+            // is the frame that lands in the file. The activity is portrait-locked, so ROTATION_0.
+            val viewPort = ViewPort.Builder(
+                Rational(state.aspect.width, state.aspect.height),
+                Surface.ROTATION_0
+            ).build()
             val session = SessionConfig.Builder(preview, capture)
+                .setViewPort(viewPort)
                 .apply {
                     if (!forced && fps != null) setFrameRateRange(Range(fps, fps))
                 }
@@ -283,8 +294,12 @@ fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = vi
         if (request != null) {
             CameraXViewfinder(
                 surfaceRequest = request,
+                // Letterboxed to the chosen shape, as the reference does, rather than filling the
+                // screen and hiding what the crop will take.
                 modifier = Modifier
-                    .fillMaxSize()
+                    .align(Alignment.Center)
+                    .aspectRatio(state.aspect.ratio)
+                    .clip(RoundedCornerShape(22.dp))
                     .onSizeChanged { viewfinderSize = it }
                     // Declared before the tap detector so it sees events first and can claim a
                     // swipe or pinch before the tap detector turns the release into a focus point.
@@ -371,11 +386,14 @@ fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = vi
             flashOn = state.flashOn,
             hasFlash = state.hasFlash,
             speed = state.speed,
+            aspectLabel = state.aspect.label,
             enabled = !state.isRecording && !state.isExporting,
+            aspectEnabled = !state.isRecording && !state.isExporting && !state.hasClips,
             onFlip = viewModel::switchLens,
             onFlash = viewModel::toggleFlash,
             onTimer = { showCountdownSheet = true },
             onSpeed = { showSpeedPicker = !showSpeedPicker },
+            onAspect = { showAspectPicker = !showAspectPicker },
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .windowInsetsPadding(WindowInsets.safeDrawing)
@@ -460,6 +478,7 @@ fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = vi
                         detectTapGestures(onTap = {
                             showSizePanel = false
                             showSpeedPicker = false
+                            showAspectPicker = false
                             showCountdownSheet = false
                         })
                     }
@@ -467,9 +486,10 @@ fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = vi
         }
 
         if (showSpeedPicker) {
-            SpeedPicker(
+            OptionPicker(
                 options = CameraViewModel.SPEED_OPTIONS,
                 selected = state.speed,
+                label = ::formatSpeed,
                 onSelect = {
                     viewModel.setSpeed(it)
                     showSpeedPicker = false
@@ -478,6 +498,22 @@ fun CameraScreen(onOpenInEditor: (File) -> Unit, viewModel: CameraViewModel = vi
                     .align(Alignment.TopEnd)
                     .windowInsetsPadding(WindowInsets.safeDrawing)
                     .padding(top = 150.dp, end = 62.dp)
+            )
+        }
+
+        if (showAspectPicker) {
+            OptionPicker(
+                options = CameraViewModel.Aspect.entries,
+                selected = state.aspect,
+                label = { it.label },
+                onSelect = {
+                    viewModel.setAspect(it)
+                    showAspectPicker = false
+                },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(top = 250.dp, end = 62.dp)
             )
         }
 
@@ -625,17 +661,20 @@ private fun FormatChip(label: String, enabled: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** The vertical control rail from the reference: flip, flash, timer, speed. */
+/** The vertical control rail from the reference: flip, flash, timer, speed, aspect ratio. */
 @Composable
 internal fun SideRail(
     flashOn: Boolean,
     hasFlash: Boolean,
     speed: Float,
+    aspectLabel: String,
     enabled: Boolean,
+    aspectEnabled: Boolean,
     onFlip: () -> Unit,
     onFlash: () -> Unit,
     onTimer: () -> Unit,
     onSpeed: () -> Unit,
+    onAspect: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -676,6 +715,13 @@ internal fun SideRail(
             enabled = enabled,
             active = speed != 1f,
             onClick = onSpeed
+        )
+        RailButton(
+            iconRes = R.drawable.ic_ratio,
+            contentDescription = "Aspect ratio",
+            label = aspectLabel,
+            enabled = aspectEnabled,
+            onClick = onAspect
         )
     }
 }
