@@ -41,6 +41,18 @@ class TimeMap(val keep: List<Span>) {
         return low
     }
 
+    /**
+     * The clip boundary nearest an output position, as an insertion index from 0 (before the first
+     * clip) to keep.size (after the last). Ties go to the later boundary.
+     */
+    fun boundaryNear(outputMs: Long): Int {
+        if (keep.isEmpty()) return 0
+        val index = clipAt(outputMs.coerceIn(0L, totalOutputMs))
+        val before = outputMs - outStarts[index]
+        val after = outStarts[index + 1] - outputMs
+        return if (before < after) index else index + 1
+    }
+
     /** The source instant playing at an output position. Clamped to the timeline's ends. */
     fun toSource(outputMs: Long): Long {
         if (keep.isEmpty()) return 0L

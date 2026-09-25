@@ -39,6 +39,7 @@
     <string name="settings">Settings</string>
     <string name="settings_cloud">Cloud transcription</string>
     <string name="settings_cloud_help">Optional. Paste your own key to enable cloud captions and transcripts. Keys stay on this phone. Only the audio of a video you choose is uploaded, and only after you confirm.</string>
+    <string name="settings_groq_key">Groq API key (free)</string>
     <string name="settings_openai_key">OpenAI API key</string>
     <string name="settings_gemini_key">Gemini API key</string>
     <string name="settings_show_keys">Show keys</string>

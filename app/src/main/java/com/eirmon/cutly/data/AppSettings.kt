@@ -15,6 +15,10 @@ import com.eirmon.cutly.transcribe.TranscriptionEngine
 class AppSettings(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
+    var groqKey: String
+        get() = prefs.getString(KEY_GROQ, null)?.trim().orEmpty().ifBlank { BuildConfig.GROQ_API_KEY }
+        set(value) = prefs.edit().putString(KEY_GROQ, value.trim()).apply()
+
     var openAiKey: String
         get() = prefs.getString(KEY_OPENAI, null)?.trim().orEmpty().ifBlank { BuildConfig.OPENAI_API_KEY }
         set(value) = prefs.edit().putString(KEY_OPENAI, value.trim()).apply()
@@ -37,6 +41,7 @@ class AppSettings(context: Context) {
     /** The name of whichever cloud backend a request would go to, or null when there is none. */
     val cloudProvider: String?
         get() = when {
+            groqKey.isNotBlank() -> "Groq"
             openAiKey.isNotBlank() -> "OpenAI"
             geminiKey.isNotBlank() -> "Google Gemini"
             else -> null
@@ -47,6 +52,7 @@ class AppSettings(context: Context) {
     companion object {
         const val PRIVACY_URL = "https://riecodes.github.io/cutly/privacy"
         const val SOURCE_URL = "https://github.com/riecodes/cutly"
+        private const val KEY_GROQ = "groq-key"
         private const val KEY_OPENAI = "openai-key"
         private const val KEY_GEMINI = "gemini-key"
         private const val KEY_ENGINE = "engine"

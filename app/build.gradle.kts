@@ -15,6 +15,7 @@ val localProperties = Properties().apply {
 }
 val geminiApiKey: String = localProperties.getProperty("gemini.api.key").orEmpty()
 val openAiApiKey: String = localProperties.getProperty("openai.api.key").orEmpty()
+val groqApiKey: String = localProperties.getProperty("groq.api.key").orEmpty()
 
 // Release signing comes from keystore.properties (gitignored) on a developer machine, or from
 // CUTLY_* environment variables in CI. With neither, the release build is simply unsigned.
@@ -73,11 +74,13 @@ android {
             // Release builds carry no key; users paste their own in Settings.
             buildConfigField("String", "GEMINI_API_KEY", "\"\"")
             buildConfigField("String", "OPENAI_API_KEY", "\"\"")
+            buildConfigField("String", "GROQ_API_KEY", "\"\"")
         }
         debug {
             applicationIdSuffix = ".debug"
             buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
             buildConfigField("String", "OPENAI_API_KEY", "\"$openAiApiKey\"")
+            buildConfigField("String", "GROQ_API_KEY", "\"$groqApiKey\"")
         }
     }
 

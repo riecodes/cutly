@@ -81,6 +81,7 @@ fun SettingsScreen(
     val context = LocalContext.current
     val settings = remember { AppSettings(context) }
     val state by viewModel.state.collectAsStateWithLifecycle()
+    var groqKey by rememberSaveable { mutableStateOf(settings.groqKey) }
     var openAiKey by rememberSaveable { mutableStateOf(settings.openAiKey) }
     var geminiKey by rememberSaveable { mutableStateOf(settings.geminiKey) }
     var reveal by rememberSaveable { mutableStateOf(false) }
@@ -139,6 +140,17 @@ fun SettingsScreen(
             lineHeight = 18.sp
         )
         Spacer(Modifier.height(12.dp))
+        KeyField(
+            label = stringResource(R.string.settings_groq_key),
+            value = groqKey,
+            reveal = reveal,
+            onValueChange = {
+                groqKey = it
+                settings.groqKey = it
+                viewModel.refreshCloud()
+            }
+        )
+        Spacer(Modifier.height(10.dp))
         KeyField(
             label = stringResource(R.string.settings_openai_key),
             value = openAiKey,

@@ -23,7 +23,7 @@ internal object TranscriberFactory {
                 sherpa.files() ?: error("Download the offline Whisper model in Settings.")
             )
             TranscriptionEngine.CLOUD -> CloudTranscriberFactory.create(settings)
-                ?: error("Add an OpenAI or Gemini key in Settings.")
+                ?: error("Add a Groq, OpenAI or Gemini key in Settings.")
         }
 
     /** "on device", "offline Whisper", "OpenAI": what a status line or a consent dialog names. */

@@ -16,6 +16,7 @@ import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.CameraInfo
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.DynamicRange
+import androidx.camera.core.MirrorMode
 import androidx.camera.core.Preview
 import androidx.camera.video.FallbackStrategy
 import androidx.camera.video.Quality
@@ -114,7 +115,10 @@ object FormatCatalog {
             )
             .build()
 
+        // The front preview is a mirror, so the file must be one too; CameraX defaults the
+        // recording to unmirrored, which saves selfie takes flipped against what was framed.
         val builder = VideoCapture.Builder(recorder)
+            .setMirrorMode(MirrorMode.MIRROR_MODE_ON_FRONT_ONLY)
         if (forceFrameRate != null) {
             Camera2Interop.Extender(builder).setCaptureRequestOption(
                 CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,

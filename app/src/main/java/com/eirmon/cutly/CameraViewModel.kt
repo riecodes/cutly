@@ -92,6 +92,9 @@ class CameraViewModel(
     /** Set when a lens switch interrupted an active clip, so recording auto-resumes after rebind. */
     private var resumeAfterRebind = false
 
+    /** A flip asked for mid-clip, held until that clip has finalized on the old lens. */
+    private var flipAfterStop = false
+
     /** Clip-elapsed time of the last free-space check, so the running clip polls it sparingly. */
     private var lastSpaceCheckMs = 0L
 
@@ -214,6 +217,7 @@ class CameraViewModel(
         val file = store.newClipFile()
         lastSpaceCheckMs = 0L
         val speed = current.speed
+        val lens = current.lensFacing
         val height = current.activeFormat?.heightPx ?: 1080
         _state.update {
             it.copy(
@@ -235,7 +239,6 @@ class CameraViewModel(
                 stopIfSpaceRunsOut(elapsed)
             },
             onFinished = { durationMs, failed, outOfSpace ->
-                val lens = _state.value.lensFacing
                 if (failed || durationMs < MIN_CLIP_MS) {
                     // Sub-threshold taps produce unusable files; drop them silently.
                     file.delete()
@@ -265,6 +268,10 @@ class CameraViewModel(
                             status = if (outOfSpace) OUT_OF_SPACE_MESSAGE else it.status
                         )
                     }
+                }
+                if (flipAfterStop) {
+                    flipAfterStop = false
+                    flipLens()
                 }
             }
         )
@@ -331,9 +338,19 @@ class CameraViewModel(
     fun switchLens() {
         if (_state.value.isExporting) return
         if (_state.value.isRecording) {
-            resumeAfterRebind = true
-            recorder.stop()
+            // Rebinding before Finalize would unbind the capture under the running clip, and the
+            // resume would find isRecording still set and silently not start.
+            if (!flipAfterStop) {
+                flipAfterStop = true
+                resumeAfterRebind = true
+                recorder.stop()
+            }
+            return
         }
+        flipLens()
+    }
+
+    private fun flipLens() {
         _state.update {
             it.copy(
                 lensFacing = if (it.lensFacing == CameraSelector.LENS_FACING_BACK) {

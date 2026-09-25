@@ -12,14 +12,20 @@ import java.net.URL
 import java.util.UUID
 
 /**
- * Streams one extracted M4A to OpenAI and returns its recognizer-native timed segments.
+ * Streams one extracted M4A to OpenAI, or to Groq's OpenAI-compatible endpoint, and returns its
+ * recognizer-native timed segments.
  *
  * whisper-1 is deliberate: the current audio API only offers verbose_json and segment timestamps
  * for Whisper, while gpt-4o-transcribe accepts plain JSON only. Multipart bytes are streamed from
  * disk because buffering a long take beside the video and extracted audio would create a needless
  * memory spike.
  */
-class OpenAiTranscriber(private val apiKey: String) : Transcriber {
+class OpenAiTranscriber(
+    private val apiKey: String,
+    private val endpoint: String = ENDPOINT,
+    private val model: String = MODEL,
+    internal val provider: String = "OpenAI"
+) : Transcriber {
 
     override suspend fun transcribe(audio: File): List<Segment> = withContext(Dispatchers.IO) {
         // whisper-1 rejects uploads over 25 MB; refuse before sending the whole file to learn that.
@@ -27,7 +33,7 @@ class OpenAiTranscriber(private val apiKey: String) : Transcriber {
             throw IOException("Take is too long to transcribe in one request")
         }
         val boundary = "Cutly-${UUID.randomUUID()}"
-        val connection = (URL(ENDPOINT).openConnection() as HttpURLConnection).apply {
+        val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             setRequestProperty("Authorization", "Bearer $apiKey")
             setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
@@ -39,7 +45,7 @@ class OpenAiTranscriber(private val apiKey: String) : Transcriber {
 
         try {
             BufferedOutputStream(connection.outputStream).use { body ->
-                body.field(boundary, "model", MODEL)
+                body.field(boundary, "model", model)
                 body.field(boundary, "response_format", "verbose_json")
                 body.field(boundary, "timestamp_granularities[]", "segment")
                 body.field(boundary, "temperature", "0")
@@ -52,9 +58,9 @@ class OpenAiTranscriber(private val apiKey: String) : Transcriber {
             val stream = if (failed) connection.errorStream else connection.inputStream
             val response = stream?.use { it.readCapped() }.orEmpty()
             if (failed && response.isBlank()) {
-                throw IOException("OpenAI returned HTTP ${connection.responseCode}")
+                throw IOException("$provider returned HTTP ${connection.responseCode}")
             }
-            parseSegments(response)
+            parseSegments(response, provider)
         } finally {
             connection.disconnect()
         }
@@ -84,6 +90,14 @@ class OpenAiTranscriber(private val apiKey: String) : Transcriber {
         private const val MODEL = "whisper-1"
         private const val MAX_UPLOAD_BYTES = 25L * 1000 * 1000
         private const val ENDPOINT = "https://api.openai.com/v1/audio/transcriptions"
+
+        /** Groq's free tier serves Whisper large-v3 behind the same request and response shape. */
+        fun groq(apiKey: String) = OpenAiTranscriber(
+            apiKey,
+            endpoint = "https://api.groq.com/openai/v1/audio/transcriptions",
+            model = "whisper-large-v3",
+            provider = "Groq"
+        )
         private const val UPLOAD_CHUNK_BYTES = 64 * 1024
         private const val PROMPT =
             "English and Filipino/Tagalog speech, often code-switching. Transcribe exactly; " +
@@ -95,29 +109,29 @@ class OpenAiTranscriber(private val apiKey: String) : Transcriber {
          * An explicit empty segments array is the one real no-speech answer. Missing arrays,
          * non-empty text without timings, and responses whose every timing is invalid are errors.
          */
-        internal fun parseSegments(body: String): List<Segment> {
+        internal fun parseSegments(body: String, provider: String = "OpenAI"): List<Segment> {
             val root = try {
                 JSONObject(body)
             } catch (error: Exception) {
-                throw IOException("OpenAI sent a malformed response", error)
+                throw IOException("$provider sent a malformed response", error)
             }
 
             root.optJSONObject("error")?.let { error ->
                 throw IOException(
-                    error.optString("message").ifBlank { "OpenAI rejected the request" }
+                    error.optString("message").ifBlank { "$provider rejected the request" }
                 )
             }
 
             val segments = root.optJSONArray("segments")
-                ?: throw IOException("OpenAI returned no timed transcript")
+                ?: throw IOException("$provider returned no timed transcript")
             val fullText = root.optString("text").trim()
             if (segments.length() == 0) {
                 if (fullText.isNotEmpty()) {
-                    throw IOException("OpenAI returned transcript text without timings")
+                    throw IOException("$provider returned transcript text without timings")
                 }
                 return emptyList()
             }
-            if (fullText.isEmpty()) throw IOException("OpenAI returned no transcript text")
+            if (fullText.isEmpty()) throw IOException("$provider returned no transcript text")
 
             val parsed = (0 until segments.length()).mapNotNull { index ->
                 val item = segments.optJSONObject(index) ?: return@mapNotNull null
@@ -133,7 +147,7 @@ class OpenAiTranscriber(private val apiKey: String) : Transcriber {
             }.sortedBy { it.startMs }
 
             if (parsed.isEmpty()) {
-                throw IOException("OpenAI returned a transcript with no usable timings")
+                throw IOException("$provider returned a transcript with no usable timings")
             }
 
             // Segment.at binary-searches these on every rendered frame, so overlaps are trimmed

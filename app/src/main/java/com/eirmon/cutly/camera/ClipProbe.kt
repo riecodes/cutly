@@ -26,8 +26,19 @@ object ClipProbe {
         val frameRate: Float,
         val bitrate: Int?,
         val frameCount: Int,
-        val durationUs: Long
+        val durationUs: Long,
+        /** Clockwise degrees the player turns the coded frame; width/height are before that. */
+        val rotation: Int = 0
     ) {
+        private val quarterTurn: Boolean get() = rotation % 180 != 0
+
+        /** The frame as it plays, after [rotation]. */
+        val displayWidth: Int get() = if (quarterTurn) height else width
+        val displayHeight: Int get() = if (quarterTurn) width else height
+
+        /** The resolution tier (1080 for FHD) whatever the orientation. */
+        val shortSide: Int get() = minOf(width, height)
+
         /** Measured, not declared: frames actually muxed over the actual duration. */
         val measuredFps: Float
             get() = if (durationUs <= 0 || frameCount <= 0) frameRate
@@ -107,7 +118,8 @@ object ClipProbe {
                 bitrate = format.intOrNull(MediaFormat.KEY_BIT_RATE)?.takeIf { it > 0 }
                     ?: videoBitrateFromContainer(extractor, setRetrieverSource),
                 frameCount = frames,
-                durationUs = durationUs
+                durationUs = durationUs,
+                rotation = format.intOrNull(MediaFormat.KEY_ROTATION) ?: 0
             ).also {
                 Log.i(
                     TAG,

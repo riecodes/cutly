@@ -26,7 +26,7 @@ A projects grid with two ways in and one editor:
 | Export / concat | Media3 Transformer + Presentation effect |
 | Delivery | MediaStore, `Movies/Cutly` |
 | Transcription | Android `SpeechRecognizer`, sherpa-onnx Whisper, or Gemini, audio only |
-| Cloud transcript / captions | OpenAI `whisper-1` or Gemini, audio only |
+| Cloud transcript / captions | Groq `whisper-large-v3`, OpenAI `whisper-1` or Gemini, audio only |
 | Silence detection | `MediaExtractor` + `MediaCodec`, RMS per 20 ms window |
 | Captions | Media3 `CanvasOverlay` on the composition |
 | Build | AGP 9 (built-in Kotlin), Gradle 9.7 |
@@ -93,9 +93,9 @@ Android's DownloadManager after process death, is SHA-256 verified before use, a
 from the same screen. It is not bundled in the APK.
 
 The editor's **Transcript** and **Captions** tools use whichever engine is chosen. With the cloud
-engine, every upload first shows a consent dialog naming the provider. OpenAI is used when its key
-exists and returns native `whisper-1` segment timestamps; otherwise Gemini's structured-timing path
-is used. All paths strip the video track into a temporary M4A and delete it when the attempt
+engine, every upload first shows a consent dialog naming the provider. Groq is used when its key
+exists, then OpenAI; both return native Whisper segment timestamps through the same request.
+Otherwise Gemini's structured-timing path is used. All paths strip the video track into a temporary M4A and delete it when the attempt
 finishes.
 
 The speed effect is deliberately not applied to the transcription audio — a 3x take is
@@ -103,15 +103,16 @@ unintelligible to a speech model, and the transcript is of what was said.
 
 ### Setup
 
-Cloud transcription is optional and bring-your-own-key. Paste an OpenAI or Gemini key in
+Cloud transcription is optional and bring-your-own-key. Paste a Groq, OpenAI or Gemini key in
 **Settings** inside the app; it is stored in app-private storage, excluded from backup, and used
-only for the audio uploads you confirm. OpenAI takes precedence when both are present, because its
-`whisper-1` response carries native segment timings.
+only for the audio uploads you confirm. Groq takes precedence (free tier, no billing), then OpenAI, then
+Gemini. Groq and OpenAI responses carry native Whisper segment timings.
 
 For development, debug builds also read the same keys from `local.properties` (untracked), so the
 Settings screen does not have to be visited on every reinstall:
 
 ```properties
+groq.api.key=<free key from https://console.groq.com/keys>
 openai.api.key=<OpenAI API key>
 gemini.api.key=<key from https://aistudio.google.com/apikey>
 ```

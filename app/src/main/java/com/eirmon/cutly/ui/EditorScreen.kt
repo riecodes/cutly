@@ -86,6 +86,7 @@ import com.eirmon.cutly.export.CutTimeline
 import com.eirmon.cutly.export.TimeMap
 import com.eirmon.cutly.transcribe.Segment
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import com.eirmon.cutly.ui.theme.Accent
@@ -218,8 +219,8 @@ internal fun EditorScreen(
         EditorHeader(
             title = if (saved) "Saved to Movies/Cutly" else review.name,
             canSave = review.canSave && !busy,
-            canUndo = canUndo && !busy && !saved,
-            canRedo = canRedo && !busy && !saved,
+            canUndo = canUndo && !busy,
+            canRedo = canRedo && !busy,
             onUndo = onUndo,
             onRedo = onRedo,
             onBack = { if (!busy) onDismiss() },
@@ -261,18 +262,19 @@ internal fun EditorScreen(
             }
         )
         var showAddChooser by remember { mutableStateOf(false) }
-        // New footage lands after the selected clip, or after the one under the caret.
-        val insertAt = when {
-            selectedClip in review.keep.indices -> selectedClip + 1
-            review.keep.isNotEmpty() -> CutTimeline.clipAtOutputPosition(review.keep, playheadMs) + 1
-            else -> 0
-        }
+        // Frozen when the chooser opens: the preview can report a new playhead while the gallery
+        // covers the screen, and the slot must be the one the user was looking at when they tapped.
+        var insertAt by rememberSaveable { mutableIntStateOf(0) }
         val galleryPicker = rememberLauncherForActivityResult(
             ActivityResultContracts.PickVisualMedia()
         ) { picked -> picked?.let { onAddFromGallery(it, insertAt) } }
         if (showAddChooser) {
             ChoiceDialog(
-                title = "Add a clip here",
+                title = when (insertAt) {
+                    0 -> if (review.keep.isEmpty()) "Add a clip" else "Add a clip at the start"
+                    review.keep.size -> "Add a clip at the end"
+                    else -> "Add a clip after clip $insertAt"
+                },
                 choices = listOf(
                     "Record with the camera" to {
                         showAddChooser = false
@@ -296,10 +298,19 @@ internal fun EditorScreen(
             totalMs = review.originalMs,
             playheadMs = playheadMs,
             selected = selectedClip,
-            enabled = !busy && !saved,
+            enabled = !busy,
             onClipChange = onClipChange,
             onMove = onMoveClip,
-            onAdd = { showAddChooser = true },
+            onAdd = {
+                // After the selected clip; otherwise at the clip edge nearest the caret, which is
+                // the only way footage can go in front of the first clip.
+                insertAt = if (selectedClip in review.keep.indices) {
+                    selectedClip + 1
+                } else {
+                    TimeMap(review.keep).boundaryNear(playheadMs)
+                }
+                showAddChooser = true
+            },
             onSelect = {
                 tool = EditorTool.Clips
                 if (selectedClip == it) {
@@ -323,20 +334,20 @@ internal fun EditorScreen(
                 EditorTool.Clips -> ClipControls(
                     clips = review.keep,
                     selected = selectedClip,
-                    enabled = !busy && !saved,
+                    enabled = !busy,
                     onSplit = { onSplit(playheadMs) },
                     onRemove = onRemoveClip
                 )
                 EditorTool.Cut -> CutControls(
                     settings = review.settings,
                     manualEdits = review.manualEdits,
-                    enabled = !busy && !saved,
+                    enabled = !busy,
                     onSettingsChange = onSettingsChange,
                     onRedetect = onRedetect
                 )
                 EditorTool.Captions -> CaptionControls(
                     review = review,
-                    enabled = !busy && !saved,
+                    enabled = !busy,
                     engineLabel = engineLabel,
                     needsKey = needsKey,
                     onAdd = { if (uploads) pendingCloud = onAddCaptions else onAddCaptions() },
@@ -345,7 +356,7 @@ internal fun EditorScreen(
                 )
                 EditorTool.Transcript -> TranscriptControls(
                     segments = review.captions,
-                    enabled = !busy && !saved,
+                    enabled = !busy,
                     transcribing = status?.startsWith("Transcri") == true,
                     engineLabel = engineLabel,
                     needsKey = needsKey,
@@ -653,7 +664,8 @@ private fun ClipTimeline(
                 }
             }
         }
-        // The add tile trails the last clip: camera or gallery footage joins the end of the take.
+        // One add tile trails the strip; the caller decides the slot (after the selected clip, or
+        // at the edge nearest the caret) and names it in the chooser before anything is added.
         if (enabled) {
             item(key = "add") {
                 Box(
@@ -663,7 +675,10 @@ private fun ClipTimeline(
                         .clip(RoundedCornerShape(3.dp))
                         .border(1.dp, EditorLine, RoundedCornerShape(3.dp))
                         .clickable(onClick = onAdd)
-                        .semantics { role = Role.Button },
+                        .semantics {
+                            role = Role.Button
+                            contentDescription = "Add a clip"
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -959,7 +974,7 @@ private fun CaptionControls(
             else -> "Apply saved transcript"
         },
         detail = when {
-            needsKey -> "Cloud transcription is selected. Add your OpenAI or Gemini key first."
+            needsKey -> "Cloud transcription is selected. Add your Groq, OpenAI or Gemini key first."
             transcript == null -> "Transcribes $engineLabel, then burns captions into the export."
             transcript.isEmpty() -> "No speech was found in this project."
             review.captionsEnabled -> "${transcript.size} lines will appear in the saved video."
@@ -1004,7 +1019,7 @@ private fun TranscriptControls(
             title = if (transcribing) "Transcribing project" else "Transcribe project",
             detail = when {
                 transcribing -> "Cutly retries a few times, then reports the error."
-                needsKey -> "Cloud transcription is selected. Add your OpenAI or Gemini key first."
+                needsKey -> "Cloud transcription is selected. Add your Groq, OpenAI or Gemini key first."
                 else -> "Transcribes $engineLabel. The transcript is saved with this project."
             },
             action = when {

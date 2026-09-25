@@ -31,6 +31,19 @@ class TimeMapTest {
     }
 
     @Test
+    fun `boundaryNear snaps to the closest clip edge`() {
+        assertEquals(0, map.boundaryNear(0))
+        assertEquals(0, map.boundaryNear(400))
+        assertEquals(1, map.boundaryNear(600))
+        assertEquals(1, map.boundaryNear(1_100))
+        assertEquals(2, map.boundaryNear(2_400))
+        assertEquals(3, map.boundaryNear(3_500))
+        assertEquals(3, map.boundaryNear(99_999))
+        assertEquals(0, map.boundaryNear(-5))
+        assertEquals(0, TimeMap(emptyList()).boundaryNear(500))
+    }
+
+    @Test
     fun `toSource and toOutput round trip for kept instants`() {
         for (sourceMs in listOf(0L, 500L, 2_000L, 2_750L, 8_000L, 8_999L)) {
             val outputMs = map.toOutput(sourceMs)!!

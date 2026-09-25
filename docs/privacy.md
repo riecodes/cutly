@@ -24,11 +24,12 @@ does not receive any data from the app.
 Cutly works fully offline. Two optional features send data to a third party, and both happen
 only when you tap them and confirm the upload:
 
-- **Cloud transcription and captions.** If you paste your own OpenAI or Google Gemini API key
+- **Cloud transcription and captions.** If you paste your own Groq, OpenAI or Google Gemini API key
   in Settings, the app can send the **audio track** of a video you choose to that provider to
   get a transcript back. The video itself is never sent. The audio is deleted from the phone
   as soon as the transcript arrives. What the provider does with the audio is governed by
   their terms and privacy policy, not this one:
+  [Groq](https://groq.com/privacy-policy/),
   [OpenAI](https://openai.com/policies/privacy-policy),
   [Google](https://policies.google.com/privacy).
 - **Offline speech model download.** Choosing the Whisper engine downloads a speech model of

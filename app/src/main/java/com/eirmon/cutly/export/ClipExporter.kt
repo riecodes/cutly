@@ -57,12 +57,25 @@ class ClipExporter(private val context: Context) {
             clips.map { clip -> clip to ClipProbe.probeMetadata(clip.file) }
         }
         val quality = ExportQuality.merge(sources.map { (clip, info) ->
-            ExportQuality.Source(info?.height ?: clip.heightPx, info?.bitrate)
+            ExportQuality.Source(info?.shortSide ?: clip.heightPx, info?.bitrate)
         })
         val outputHeight = requireNotNull(quality.height)
 
+        // The first clip sets the frame. A clip of another shape (a landscape gallery video in a
+        // portrait take) is letterboxed into it; left alone, the encoder would stretch it.
+        val first = sources.first().second
+        val frame = first?.let {
+            ExportQuality.fitFrame(it.displayWidth, it.displayHeight, outputHeight)
+        }
+        // Once one clip needs the fixed frame, every clip gets it, so no two items can round to
+        // sizes a pixel apart.
+        val mixed = frame != null && sources.any { (_, info) ->
+            info != null && !ExportQuality.sameShape(
+                info.displayWidth, info.displayHeight, first.displayWidth, first.displayHeight
+            )
+        }
         val items = sources.map { (clip, info) ->
-            editedItem(clip, info?.height ?: clip.heightPx, outputHeight)
+            editedItem(clip, info?.shortSide ?: clip.heightPx, outputHeight, frame.takeIf { mixed })
         }
 
         // Declaring both track types makes Transformer fill silence for any clip recorded without
@@ -82,11 +95,11 @@ class ClipExporter(private val context: Context) {
         val output = File(context.cacheDir, "cutly_part_${clip.file.nameWithoutExtension}.mp4")
         val info = withContext(Dispatchers.IO) { ClipProbe.probeMetadata(clip.file) }
         val quality = ExportQuality.single(
-            ExportQuality.Source(info?.height ?: clip.heightPx, info?.bitrate)
+            ExportQuality.Source(info?.shortSide ?: clip.heightPx, info?.bitrate)
         )
 
         val sequence = EditedMediaItemSequence.Builder(AUDIO_AND_VIDEO)
-            .addItem(editedItem(clip, info?.height ?: clip.heightPx, quality.height))
+            .addItem(editedItem(clip, info?.shortSide ?: clip.heightPx, quality.height))
             .build()
 
         return runTransformer(Composition.Builder(sequence).build(), output, quality.bitrate)
@@ -229,12 +242,20 @@ class ClipExporter(private val context: Context) {
     private fun editedItem(
         clip: Clip,
         sourceHeight: Int,
-        outputHeight: Int?
+        outputHeight: Int?,
+        frame: Pair<Int, Int>? = null
     ): EditedMediaItem {
-        val builder = EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(clip.file)))
-            .setEffects(
-                Effects(emptyList(), resizeEffects(sourceHeight, outputHeight))
+        val video = if (frame != null) {
+            listOf(
+                Presentation.createForWidthAndHeight(
+                    frame.first, frame.second, Presentation.LAYOUT_SCALE_TO_FIT
+                )
             )
+        } else {
+            resizeEffects(sourceHeight, outputHeight)
+        }
+        val builder = EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(clip.file)))
+            .setEffects(Effects(emptyList(), video))
 
         if (clip.speed != 1f) {
             // Pitch rides along with the speed, which is what a sped-up clip is expected to sound
@@ -245,10 +266,13 @@ class ClipExporter(private val context: Context) {
         return builder.build()
     }
 
-    /** Scaling is an encode effect, so do not add it when it would be an identity transform. */
+    /**
+     * Scaling is an encode effect, so do not add it when it would be an identity transform. The
+     * heights are short sides (resolution tiers), so a portrait frame is scaled by its width.
+     */
     private fun resizeEffects(sourceHeight: Int?, outputHeight: Int?): List<Presentation> =
         if (outputHeight != null && sourceHeight != outputHeight) {
-            listOf(Presentation.createForHeight(outputHeight))
+            listOf(Presentation.createForShortSide(outputHeight))
         } else {
             emptyList()
         }

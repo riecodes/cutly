@@ -97,10 +97,19 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         val captions: List<Segment>? = null,
         /** Transcript exists independently; this controls whether it is burned into the export. */
         val captionsEnabled: Boolean = false,
-        /** Set once the cut has actually been written to Movies/Cutly. */
+        /**
+         * Set once the cut has been written to Movies/Cutly, and cleared by the next edit that
+         * would change that file, so the header offers EXPORT again.
+         */
         val savedName: String? = null
     ) {
         val keptMs: Long get() = keep.sumOf { it.durationMs }
+
+        /** Whether this review would export differently from [before]. A transcript alone does not. */
+        fun changesExport(before: Review): Boolean =
+            keep != before.keep ||
+                captionsEnabled != before.captionsEnabled ||
+                (captionsEnabled && captions != before.captions)
         val removedMs: Long get() = originalMs - keptMs
 
         /** Cuts, not kept pieces: a trimmed head or tail is a cut with no piece before it. */
@@ -226,7 +235,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
      */
     private fun append(at: Int, status: String, produce: suspend () -> File) {
         val review = _state.value.review ?: return
-        if (_state.value.isBusy || review.savedName != null) return
+        if (_state.value.isBusy) return
         _state.update { it.copy(isBusy = true, status = status, error = null) }
         viewModelScope.launch {
             val result = runCatching {
@@ -246,7 +255,8 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                         add(slot, Span(review.originalMs, project.durationMs))
                     },
                     removed = review.removed,
-                    manualEdits = true
+                    manualEdits = true,
+                    savedName = null
                 ).also { withContext(Dispatchers.IO) { store.save(it) } }
             }
             result.fold(
@@ -459,7 +469,6 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         var restored: Review? = null
         _state.update { current ->
             val review = current.review ?: return@update current
-            if (review.savedName != null) return@update current
             val previous = from.removeLastOrNull() ?: return@update current
             to.addLast(review)
             restored = previous
@@ -469,17 +478,21 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
-     * Applies one change to the open review and writes it out. A saved review is a finished
-     * result, not a draft: letting the sliders move on it would show numbers that no longer
-     * describe the file already in the gallery.
+     * Applies one change to the open review and writes it out. A saved project stays editable;
+     * a change that would alter the exported file drops [Review.savedName], so the header stops
+     * claiming the gallery copy matches and offers EXPORT again.
      */
     private fun edit(change: (Review) -> Review) {
         var changed: Review? = null
         _state.update { current ->
             val review = current.review ?: return@update current
-            if (review.savedName != null) return@update current
-            val next = change(review)
-            if (next === review) return@update current
+            val edited = change(review)
+            if (edited === review) return@update current
+            val next = if (edited.savedName != null && edited.changesExport(review)) {
+                edited.copy(savedName = null)
+            } else {
+                edited
+            }
             undoStack.addLast(review)
             while (undoStack.size > UNDO_DEPTH) undoStack.removeFirst()
             redoStack.clear()
@@ -622,7 +635,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private fun requestTranscript(enableCaptions: Boolean, replace: Boolean = false) {
         val current = _state.value
         val review = current.review ?: return
-        if (current.isBusy || (review.captions != null && !replace) || review.savedName != null) return
+        if (current.isBusy || (review.captions != null && !replace)) return
 
         val transcriber = runCatching {
             TranscriberFactory.create(getApplication(), settings, sherpa)
