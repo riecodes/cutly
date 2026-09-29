@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -61,6 +62,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.eirmon.cutly.R
 import com.eirmon.cutly.data.Project
+import com.eirmon.cutly.data.TranscriptEntry
 import com.eirmon.cutly.ui.theme.Accent
 import com.eirmon.cutly.ui.theme.DialogDivider
 import com.eirmon.cutly.ui.theme.DialogSurface
@@ -76,6 +78,9 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
+
+/** How many transcripts the grid shows before "See all". */
+private const val RECENT_TRANSCRIPTS = 3
 
 /**
  * The shell: a grid of projects with the camera and the importer one tap away underneath.
@@ -97,11 +102,25 @@ fun ProjectsScreen(
     onOpenSettings: () -> Unit,
     onRename: (Project, String) -> Unit,
     onDuplicate: (Project) -> Unit,
-    onDelete: (Project) -> Unit
+    onDelete: (Project) -> Unit,
+    transcripts: List<TranscriptEntry>,
+    transcribing: String?,
+    transcribeStatus: String?,
+    transcribeError: String?,
+    engineLabel: String,
+    needsKey: Boolean,
+    uploads: Boolean,
+    cloudProvider: String?,
+    onTranscribe: (Uri) -> Unit,
+    onCancelTranscribe: () -> Unit,
+    onOpenTranscript: (TranscriptEntry) -> Unit,
+    onOpenTranscripts: () -> Unit,
+    onDismissTranscribeError: () -> Unit
 ) {
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
     ) { picked -> picked?.let(onImport) }
+    val transcribeAction = rememberTranscribeAction(uploads, cloudProvider, onTranscribe)
     var menuFor by remember { mutableStateOf<Project?>(null) }
     var renaming by remember { mutableStateOf<Project?>(null) }
     var deleting by remember { mutableStateOf<Project?>(null) }
@@ -116,25 +135,58 @@ fun ProjectsScreen(
 
             error?.let { message -> ErrorRow(message, onDismissError) }
 
-            if (projects.isEmpty()) {
-                EmptyState(modifier = Modifier.weight(1f))
-            } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    items(projects, key = { it.id }) { project ->
-                        ProjectCard(
-                            project = project,
-                            thumb = thumbFor(project),
-                            enabled = !busy,
-                            onClick = { onOpen(project) },
-                            onLongClick = { menuFor = project }
+            // One scrolling grid: the quick tools and recent transcripts ride above the cards.
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    TranscribeTool(
+                        enabled = !busy && transcribing == null,
+                        needsKey = needsKey,
+                        onClick = if (needsKey) onOpenSettings else transcribeAction
+                    )
+                }
+                if (transcripts.isNotEmpty() || transcribing != null || transcribeError != null) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        RecentTranscripts(
+                            recent = transcripts.take(RECENT_TRANSCRIPTS),
+                            running = transcribing,
+                            status = transcribeStatus,
+                            error = transcribeError,
+                            onCancel = onCancelTranscribe,
+                            onOpen = onOpenTranscript,
+                            onSeeAll = onOpenTranscripts,
+                            onDismissError = onDismissTranscribeError
                         )
                     }
+                }
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Text(
+                        text = stringResource(R.string.projects_title),
+                        color = Color.White,
+                        fontFamily = TikTokSans,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+                if (projects.isEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        EmptyState(modifier = Modifier.padding(vertical = 48.dp))
+                    }
+                }
+                items(projects, key = { it.id }) { project ->
+                    ProjectCard(
+                        project = project,
+                        thumb = thumbFor(project),
+                        enabled = !busy,
+                        onClick = { onOpen(project) },
+                        onLongClick = { menuFor = project }
+                    )
                 }
             }
 
@@ -348,7 +400,7 @@ private fun Tab(mark: String, label: String, selected: Boolean, enabled: Boolean
 }
 
 @Composable
-private fun ErrorRow(message: String, onDismiss: () -> Unit) {
+internal fun ErrorRow(message: String, onDismiss: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()

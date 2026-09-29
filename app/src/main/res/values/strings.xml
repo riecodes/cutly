@@ -54,4 +54,23 @@
     <string name="cloud_consent_title">Upload audio to %1$s?</string>
     <string name="cloud_consent_body">Only the audio track is sent, never the video. It is processed by %1$s under their terms and deleted from this phone when the transcript arrives.</string>
     <string name="cloud_consent_upload">Upload</string>
+
+    <string name="transcribe">Transcribe</string>
+    <string name="transcribe_subtitle">Pick a video, get its transcript</string>
+    <string name="transcribe_needs_key">Add a Groq, OpenAI or Gemini key first</string>
+    <string name="transcribe_detail">Transcribes %1$s. Nothing is added to your projects.</string>
+    <string name="transcripts_title">Transcripts</string>
+    <string name="transcripts_empty">No transcripts yet</string>
+    <string name="transcripts_heading">Recent transcripts</string>
+    <string name="transcripts_see_all">SEE ALL</string>
+    <string name="transcript_no_speech">No speech</string>
+    <plurals name="transcript_lines">
+        <item quantity="one">%1$d line</item>
+        <item quantity="other">%1$d lines</item>
+    </plurals>
+    <string name="transcript_copy">COPY</string>
+    <string name="transcript_share">SHARE</string>
+    <string name="transcript_delete">DELETE</string>
+    <string name="transcript_delete_confirm">Delete “%1$s”?</string>
+    <string name="transcript_delete_body">The transcript is removed from this phone.</string>
 </resources>

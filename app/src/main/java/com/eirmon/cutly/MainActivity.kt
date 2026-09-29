@@ -26,13 +26,15 @@ import com.eirmon.cutly.ui.LicensesScreen
 import com.eirmon.cutly.ui.ProjectOpening
 import com.eirmon.cutly.ui.ProjectsScreen
 import com.eirmon.cutly.ui.SettingsScreen
+import com.eirmon.cutly.ui.TranscriptScreen
+import com.eirmon.cutly.ui.TranscriptsScreen
 import com.eirmon.cutly.ui.theme.CutlyTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
- * Five destinations and one string argument. A list in saved state is the whole back stack; a
- * navigation library would add a dependency and a route DSL for the same five `when` branches.
+ * Seven destinations and one string argument. A list in saved state is the whole back stack; a
+ * navigation library would add a dependency and a route DSL for the same seven `when` branches.
  */
 private sealed interface Screen {
     data object Projects : Screen
@@ -42,6 +44,9 @@ private sealed interface Screen {
     data class Editor(val projectId: String?) : Screen
     data object Settings : Screen
     data object Licenses : Screen
+    /** The quick transcription history; nothing on it becomes a project. */
+    data object Transcripts : Screen
+    data class Transcript(val id: String) : Screen
 
     fun encode(): String = when (this) {
         Projects -> "projects"
@@ -49,6 +54,8 @@ private sealed interface Screen {
         is Editor -> "editor:${projectId.orEmpty()}"
         Settings -> "settings"
         Licenses -> "licenses"
+        Transcripts -> "transcripts"
+        is Transcript -> "transcript:$id"
     }
 
     companion object {
@@ -59,6 +66,8 @@ private sealed interface Screen {
             }
             value == "settings" -> Settings
             value == "licenses" -> Licenses
+            value == "transcripts" -> Transcripts
+            value.startsWith("transcript:") -> Transcript(value.removePrefix("transcript:"))
             value.startsWith("editor:") -> Editor(value.removePrefix("editor:").ifBlank { null })
             else -> Projects
         }
@@ -95,11 +104,15 @@ class MainActivity : ComponentActivity() {
 
     @OptIn(UnstableApi::class)
     @Composable
-    private fun App(editor: EditorViewModel = viewModel()) {
+    private fun App(
+        editor: EditorViewModel = viewModel(),
+        transcripts: TranscriptsViewModel = viewModel()
+    ) {
         val stack = rememberSaveable(saver = ScreenStackSaver) {
             mutableStateListOf<Screen>(Screen.Projects)
         }
         val state by editor.state.collectAsStateWithLifecycle()
+        val quick by transcripts.state.collectAsStateWithLifecycle()
 
         fun push(screen: Screen) {
             stack.add(screen)
@@ -110,12 +123,22 @@ class MainActivity : ComponentActivity() {
 
         BackHandler(enabled = stack.size > 1) { pop() }
 
+        // A finished quick transcript opens itself, unless the user has moved on to editing.
+        LaunchedEffect(quick.finished) {
+            val id = quick.finished ?: return@LaunchedEffect
+            if (stack.last() == Screen.Projects || stack.last() == Screen.Transcripts) {
+                push(Screen.Transcript(id))
+            }
+            transcripts.consumeFinished()
+        }
+
         when (val top = stack.last()) {
             Screen.Projects -> {
                 // Runs every time the grid comes back, which covers returning from Settings.
                 LaunchedEffect(Unit) {
                     editor.refreshSettings()
                     editor.refreshProjects()
+                    transcripts.refresh()
                 }
                 ProjectsScreen(
                     projects = state.projects,
@@ -136,7 +159,20 @@ class MainActivity : ComponentActivity() {
                     onOpenSettings = { push(Screen.Settings) },
                     onRename = { project, name -> editor.renameProject(project.id, name) },
                     onDuplicate = { editor.duplicateProject(it.id) },
-                    onDelete = { editor.deleteProject(it.id) }
+                    onDelete = { editor.deleteProject(it.id) },
+                    transcripts = quick.entries,
+                    transcribing = quick.running,
+                    transcribeStatus = quick.status,
+                    transcribeError = quick.error,
+                    engineLabel = quick.engineLabel,
+                    needsKey = quick.needsKey,
+                    uploads = quick.uploads,
+                    cloudProvider = quick.cloudProvider,
+                    onTranscribe = transcripts::transcribe,
+                    onCancelTranscribe = transcripts::cancel,
+                    onOpenTranscript = { push(Screen.Transcript(it.id)) },
+                    onOpenTranscripts = { push(Screen.Transcripts) },
+                    onDismissTranscribeError = transcripts::dismissError
                 )
             }
             is Screen.Camera -> CameraScreen(
@@ -209,6 +245,33 @@ class MainActivity : ComponentActivity() {
                 )
             }
             Screen.Licenses -> LicensesScreen(onBack = ::pop)
+            Screen.Transcripts -> {
+                LaunchedEffect(Unit) { transcripts.refresh() }
+                TranscriptsScreen(
+                    entries = quick.entries,
+                    running = quick.running,
+                    status = quick.status,
+                    error = quick.error,
+                    engineLabel = quick.engineLabel,
+                    needsKey = quick.needsKey,
+                    uploads = quick.uploads,
+                    cloudProvider = quick.cloudProvider,
+                    onBack = ::pop,
+                    onTranscribe = transcripts::transcribe,
+                    onCancel = transcripts::cancel,
+                    onOpen = { push(Screen.Transcript(it.id)) },
+                    onOpenSettings = { push(Screen.Settings) },
+                    onDismissError = transcripts::dismissError
+                )
+            }
+            is Screen.Transcript -> TranscriptScreen(
+                entry = quick.entries.firstOrNull { it.id == top.id },
+                onBack = ::pop,
+                onDelete = {
+                    transcripts.delete(it.id)
+                    pop()
+                }
+            )
         }
     }
 
