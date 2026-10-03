@@ -4,7 +4,7 @@ title: Cutly privacy policy
 
 # Cutly privacy policy
 
-_Last updated: 13 September 2026_
+_Last updated: 3 October 2026_
 
 Cutly is an Android app for recording, transcribing and cutting short videos. It has no
 account system, no analytics, no advertising, and no crash reporting service. The developer
@@ -16,7 +16,8 @@ does not receive any data from the app.
   app's private storage and, when you export, to the `Movies/Cutly` folder on your phone.
 - **Videos you open** in the editor are copied into the app's private storage so a project
   can be resumed later. Deleting a project, or uninstalling the app, deletes that copy.
-- **Transcripts and captions** are stored with the project, on the phone.
+- **Transcripts and captions** are stored on the phone, with the project or, for a quick
+  transcription, in the app's transcript history. Each can be deleted from the app.
 - **Nothing is backed up** to Google or transferred to a new phone: the app opts out of both.
 
 ## What can leave your phone, and when

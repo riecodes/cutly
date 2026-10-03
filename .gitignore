@@ -56,6 +56,12 @@ local.log
 # redistribute, so they stay out of a public repository.
 references/
 
+# Syncthing (the working tree is mirrored between two machines)
+*.sync-conflict-*
+~syncthing~*
+.stfolder/
+.stversions/
+
 # OS
 .DS_Store
 Thumbs.db

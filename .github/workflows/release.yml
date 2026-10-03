@@ -41,7 +41,8 @@ jobs:
           CUTLY_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           export CUTLY_VERSION="${CUTLY_VERSION#v}"
-          ./gradlew testDebugUnitTest assembleRelease bundleRelease --no-daemon
+          # --no-configuration-cache keeps dependency verification on; see ci.yml.
+          ./gradlew testDebugUnitTest assembleRelease bundleRelease --no-daemon --no-configuration-cache
 
       # The APK is what the install page links to. The AAB is the Play Console upload; it is
       # signed with the same key, which becomes the Play App Signing upload key.
@@ -52,7 +53,9 @@ jobs:
           cp app/build/outputs/bundle/release/app-release.aab "cutly-$version.aab"
           sha256sum "cutly-$version.apk" "cutly-$version.aab" > "cutly-$version.sha256"
 
-      - uses: softprops/action-gh-release@v2
+      # Pinned to a commit, not a tag: this third-party step runs with write access in the job
+      # that just decoded the keystore. Dependabot proposes updates to the pin.
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
             cutly-*.apk

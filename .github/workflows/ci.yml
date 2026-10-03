@@ -5,6 +5,10 @@ on:
     branches: ["**"]
   pull_request:
 
+# Fork pull requests run here too, so the token gets read access and nothing more.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -23,7 +27,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Unit tests, lint, debug build
-        run: ./gradlew testDebugUnitTest lintDebug assembleDebug --no-daemon
+        # Dependency verification (gradle/verification-metadata.xml) is skipped when the
+        # configuration cache is on, so CI turns it off. A fresh runner gains nothing from it.
+        run: ./gradlew testDebugUnitTest lintDebug assembleDebug --no-daemon --no-configuration-cache
 
       - name: Lint report
         if: failure()

@@ -77,7 +77,7 @@ That single choice is what makes discard, per-clip export, and mid-take lens swi
   `SessionConfig` crops the preview and the recording alike, and the viewfinder is letterboxed to
   the same shape, so what is shown is what is saved. Locked once the take has a clip, since a
   merge cannot reconcile two frame shapes.
-- **Process death** — the clip list is written to `cache/clips/session.idx` after every clip, and
+- **Process death** — the clip list is written to `files/clips/session.idx` after every clip, and
   restored on launch. Android kills backgrounded camera apps aggressively.
 - **Rotation** — the activity is locked to portrait, so an `OrientationEventListener` feeds
   `videoCapture.targetRotation` manually. Without it, clips shot sideways save sideways.

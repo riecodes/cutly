@@ -34,10 +34,11 @@ That file is gitignored and must stay that way.
 
 Phone and downloaded-Whisper transcription need no key. The optional Gemini video-to-text choice,
 camera transcription, and captions use a configured cloud key; camera transcription and captions
-can also use OpenAI.
+can also use Groq or OpenAI.
 
 ```properties
 # local.properties  (gitignored, never commit this)
+groq.api.key=<free key from https://console.groq.com/keys>
 gemini.api.key=<key from https://aistudio.google.com/apikey>
 openai.api.key=<OpenAI API key>
 ```
