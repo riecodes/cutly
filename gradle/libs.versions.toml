@@ -1,15 +1,15 @@
 [versions]
-agp = "9.3.2"
-kotlin = "2.4.10"
-coreKtx = "1.19.0"
+agp = "9.4.1"
+kotlin = "2.4.20"
+coreKtx = "1.19.1"
 lifecycle = "2.11.0"
 activityCompose = "1.13.0"
-composeBom = "2026.06.01"
+composeBom = "2026.09.00"
 camerax = "1.6.1"
-media3 = "1.11.0"
+media3 = "1.11.1"
 junit = "4.13.2"
-json = "20250517"
-coroutinesTest = "1.10.2"
+json = "20260814"
+coroutinesTest = "1.11.0"
 sherpaOnnx = "1.13.7"
 
 [libraries]
