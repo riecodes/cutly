@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cutly privacy policy</title>
+<meta name="description" content="What Cutly does with your videos, transcripts and API keys, and what this website keeps.">
+<meta name="theme-color" content="#111114">
+<link rel="canonical" href="https://cutly.riecodes.com/privacy">
+<link rel="icon" href="/favicon.png" type="image/png" sizes="256x256">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preload" href="/fonts/tiktok-sans.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<main class="page">
+  <a class="word" href="/"><span class="glyph" aria-hidden="true"><i></i><i></i><i></i></span>Cutly</a>
+
+  <h1>Privacy policy</h1>
+  <p class="faint">Last updated: 4 October 2026</p>
+  <p>Cutly is an Android app for recording, transcribing and cutting short videos. It has no account system, no analytics, no advertising, and no crash reporting service. The developer does not receive any data from the app.</p>
+
+  <h2>What the app does on your phone</h2>
+  <ul>
+    <li><strong>Camera and microphone</strong> are used only while you record a take. Clips are written to the app's private storage and, when you export, to the <code>Movies/Cutly</code> folder on your phone.</li>
+    <li><strong>Videos you open</strong> in the editor are copied into the app's private storage so a project can be resumed later. Deleting a project, or uninstalling the app, deletes that copy.</li>
+    <li><strong>Transcripts and captions</strong> are stored on the phone, with the project or, for a quick transcription, in the app's transcript history. Each can be deleted from the app.</li>
+    <li><strong>Nothing is backed up</strong> to Google or transferred to a new phone: the app opts out of both.</li>
+  </ul>
+
+  <h2>What can leave your phone, and when</h2>
+  <p>Cutly works fully offline. Two optional features send data to a third party, and both happen only when you tap them and confirm:</p>
+  <ul>
+    <li><strong>Cloud transcription and captions.</strong> If you paste your own Groq, OpenAI or Google Gemini API key in Settings, the app can send the <strong>audio track</strong> of a video you choose to that provider to get a transcript back. The video itself is never sent. The audio is deleted from the phone as soon as the transcript arrives. What the provider does with the audio is governed by their terms and privacy policy, not this one: <a href="https://groq.com/privacy-policy/">Groq</a>, <a href="https://openai.com/policies/privacy-policy">OpenAI</a>, <a href="https://policies.google.com/privacy">Google</a>.</li>
+    <li><strong>Offline speech model download.</strong> Choosing the Whisper engine downloads a speech model of about 100 MB from Hugging Face over HTTPS. That is an ordinary file download; no data about you is sent.</li>
+  </ul>
+  <p>Your API keys are stored in the app's private storage on the phone and are never sent anywhere except, as an authentication header, to the provider they belong to.</p>
+
+  <h2>Permissions</h2>
+  <table>
+    <tr><th>Permission</th><th>Why</th></tr>
+    <tr><td>Camera</td><td>Recording a take.</td></tr>
+    <tr><td>Microphone</td><td>Recording sound with a take. Optional: without it, clips are silent.</td></tr>
+    <tr><td>Internet</td><td>Cloud transcription with your key, and the optional model download.</td></tr>
+  </table>
+
+  <h2>This website</h2>
+  <p>cutly.riecodes.com is a plain website with no advertising, no cookies and no tracking scripts. The film on the home page is served from this site.</p>
+  <p>The tester form at <a href="/tester">/tester</a> keeps the Gmail address you leave and the phone and Android version you name, in Google Firebase. The Gmail address is what Google Play invites you with. Both are used only to run the test, are readable only by the developer, and are deleted once the test ends. Ask at the address below and your entry is removed sooner.</p>
+
+  <h2>Children</h2>
+  <p>Cutly is not directed at children under 13 and does not knowingly collect information from them.</p>
+
+  <h2>Changes</h2>
+  <p>Changes to this policy are published on this page with a new date at the top.</p>
+
+  <h2>Contact</h2>
+  <p>Questions, or to have your tester entry removed: <a href="mailto:riecodes.collab@gmail.com">riecodes.collab@gmail.com</a>. Bugs and feature requests: <a href="https://github.com/riecodes/cutly/issues">github.com/riecodes/cutly/issues</a>.</p>
+
+  <a class="back" href="/">Back to Cutly</a>
+</main>
+</body>
+</html>

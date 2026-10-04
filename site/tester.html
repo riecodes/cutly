@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Be a Cutly tester</title>
+<meta name="description" content="Cutly needs twelve testers on Google Play before it can launch. Leave your Gmail and the Play invite goes to it.">
+<meta name="theme-color" content="#111114">
+<meta property="og:title" content="Be a Cutly tester">
+<meta property="og:description" content="Cutly needs twelve testers on Google Play before it can launch. Leave your Gmail and the Play invite goes to it.">
+<meta property="og:image" content="https://cutly.riecodes.com/media/og.jpg">
+<meta property="og:url" content="https://cutly.riecodes.com/tester">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="canonical" href="https://cutly.riecodes.com/tester">
+<link rel="icon" href="/favicon.png" type="image/png" sizes="256x256">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preload" href="/fonts/tiktok-sans.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+<link rel="stylesheet" href="/styles.css">
+<script type="module" src="/tester.js"></script>
+</head>
+<body>
+<main class="page">
+  <a class="word" href="/"><span class="glyph" aria-hidden="true"><i></i><i></i><i></i></span>Cutly</a>
+
+  <h1>Be a tester.</h1>
+  <p class="badge">Free, open source, and <b>yours first</b>.</p>
+  <p>Google Play asks for twelve testers before a new app from a personal account can launch. Cutly needs those twelve, and they get it before anyone else.</p>
+  <p>Android 10 and up. Cutly is free: nothing to pay now or later.</p>
+
+  <div class="card" style="margin-top:28px">
+    <ol class="list">
+      <li>Leave your Gmail below. Play invites testers by Google account, so it has to be a Gmail one.</li>
+      <li>The Play invite comes to that Gmail. Accept it, then install Cutly from the Play Store like any other app.</li>
+      <li>Keep it on your phone for fourteen days. That is what Play counts.</li>
+      <li>Shoot a take or two, and tell me what breaks, what is confusing, and what you would throw away.</li>
+    </ol>
+
+    <form id="testerForm" novalidate>
+      <label class="vh" for="gmail">Gmail address</label>
+      <input class="field" type="email" id="gmail" name="gmail" placeholder="you@gmail.com" autocomplete="email" required>
+      <label class="vh" for="phone">Phone and Android version</label>
+      <input class="field" type="text" id="phone" name="phone" placeholder="Phone, like Galaxy A56, Android 15" maxlength="120" required>
+      <label class="pledge"><input type="checkbox" id="stay" name="stay"> I will keep Cutly on my phone for the 14 days and say what breaks.</label>
+      <button class="btn" type="submit">Count me in</button>
+    </form>
+    <p class="status" id="testerNote" role="status"></p>
+  </div>
+
+  <p class="faint" style="margin-top:20px;font-size:14px">Your Gmail and phone model are used only to run the test. See the <a href="/privacy">privacy policy</a>.</p>
+  <a class="back" href="/">Back to Cutly</a>
+</main>
+</body>
+</html>

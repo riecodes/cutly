@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cutly: cut the dead air out of every take</title>
+<meta name="description" content="An Android video tool for people who talk on camera. Shoot a take in clips, read it back as text, and cut the silences out of it. Offline by default, no account, free and open source.">
+<meta name="theme-color" content="#111114">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Cutly">
+<meta property="og:title" content="Cutly: cut the dead air out of every take">
+<meta property="og:description" content="Shoot a take in clips, read it back as text, and cut the silences out of it. Android, free and open source.">
+<meta property="og:image" content="https://cutly.riecodes.com/media/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="675">
+<meta property="og:url" content="https://cutly.riecodes.com/">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="canonical" href="https://cutly.riecodes.com/">
+<link rel="icon" href="/favicon.png" type="image/png" sizes="256x256">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preload" href="/fonts/tiktok-sans.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/styles.css">
+<script type="module" src="/main.js"></script>
+</head>
+<body>
+<header>
+  <div class="wrap bar">
+    <a class="word" href="/" aria-label="Cutly home"><span class="glyph" aria-hidden="true"><i></i><i></i><i></i></span>Cutly</a>
+    <nav aria-label="Sections"><a href="/how">How it works</a><a href="/try">Try the cut</a><a href="/fit">Who it's for</a><a href="/keeps">Privacy</a></nav>
+    <a class="btn small" href="/tester">Be a tester</a>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div>
+        <p class="kicker">Android &middot; free and open source</p>
+        <h1>Cut the dead air out of every take.</h1>
+        <p class="lede">Shoot a take in clips, read it back as text, and cut the silences out of it. Built for videos where talking is the whole point.</p>
+        <div class="ctas">
+          <a class="btn" href="/tester">Be a tester</a>
+          <a class="btn ghost gh" href="https://github.com/riecodes/cutly"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Star on GitHub<span class="stars" data-stars hidden><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 .25a.75.75 0 01.673.418l1.882 3.815 4.21.612a.75.75 0 01.416 1.279l-3.046 2.97.719 4.192a.751.751 0 01-1.088.791L8 12.347l-3.766 1.98a.75.75 0 01-1.088-.79l.72-4.194L.818 6.374a.75.75 0 01.416-1.28l4.21-.611L7.327.668A.75.75 0 018 .25z"/></svg><span class="num">0</span><span class="vh"> stars</span></span></a>
+        </div>
+        <p class="note-line">Not on Google Play yet. Testers get it first.</p>
+      </div>
+      <div class="phone film">
+        <video id="film" src="/media/cutly.mp4" poster="/media/cutly-poster.jpg" muted loop playsinline preload="metadata"
+          aria-label="Cutly in 48 seconds: shooting a take in clips, reading it as text, and cutting the silences"></video>
+        <button class="sound" id="sound" type="button" aria-pressed="false">Sound on</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="why">
+    <div class="wrap">
+      <p class="kicker">Why it exists</p>
+      <p class="why">TikTok has no cut silences. Edits has one, but it isn't accurate. <span class="muted">So I built Cutly.</span></p>
+    </div>
+  </section>
+
+  <section id="how">
+    <div class="wrap">
+      <div class="head">
+        <h2>Shoot. Read. Cut.</h2>
+        <p class="lede">One take, three steps, all on the phone.</p>
+      </div>
+      <div class="steps">
+        <article class="step">
+          <div>
+            <span class="step-n">1</span>
+            <h3>Shoot in clips.</h3>
+            <p>A segmented camera, like TikTok's. Pause ends a clip and recording again starts the next, so a fumbled line costs one clip, not the whole take.</p>
+            <ul class="facts"><li>Every clip is its own MP4</li><li>No length cap</li><li>Discard the last clip</li><li>Zoom stops</li><li>Double-tap to flip, even mid-take</li></ul>
+          </div>
+          <div class="step-shot"><div class="phone"><img src="/media/cam_phone.webp" width="540" height="1120" loading="lazy" alt="Cutly's camera: zoom stops at 1x, 2x, 3x and 5x above a red record button"></div></div>
+        </article>
+        <article class="step">
+          <div>
+            <span class="step-n">2</span>
+            <h3>Read it as text.</h3>
+            <p>Transcribe the take on the phone, offline, or with your own cloud key. You get timestamped lines you can edit, and captions burned into the export.</p>
+            <ul class="facts"><li>Offline Whisper, about 100 MB</li><li>SHA-256 checked</li><li>Groq, OpenAI or Gemini, your key</li><li>Quick transcribe, no project needed</li></ul>
+          </div>
+          <div class="step-shot"><div class="phone"><img src="/media/captions_on.webp" width="540" height="1120" loading="lazy" alt="The editor after captions are applied: 33 caption lines will appear in the saved video"></div></div>
+        </article>
+        <article class="step">
+          <div>
+            <span class="step-n">3</span>
+            <h3>Cut the dead air.</h3>
+            <p>Cutly measures how loud the take is every 20&nbsp;ms and cuts where it stays quiet. It tells you how many cuts and how many seconds come out before anything is encoded, and your hand trims stay where you put them.</p>
+            <ul class="facts"><li>Loudness every 20&nbsp;ms</li><li>Nothing encoded until Save cut</li><li>Undo and redo</li><li>No FFmpeg</li></ul>
+          </div>
+          <div class="step-shot"><div class="phone"><img src="/media/cut.webp" width="540" height="1120" loading="lazy" alt="The cut sheet: 12 clips, 11 cuts, 7.2 seconds removed, with sliders for silence threshold, shortest pause and breathing room"></div></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="try">
+    <div class="wrap">
+      <div class="head">
+        <h2>Your turn.</h2>
+        <p class="lede">This is a real 2:12 take from Cutly: how loud it was, every 20&nbsp;ms. Move the sliders the way you would in the app. The cuts come from the same code, ported line for line.</p>
+      </div>
+      <div class="lab">
+        <div class="readout" aria-live="polite">
+          <span class="big num" id="outLen">02:03.7</span>
+          <span class="from num" id="inLen">02:12.1</span>
+          <span class="stat"><b class="num" id="outCuts">11</b> cuts</span>
+          <span class="stat"><b class="num" id="outGone">8.4&nbsp;s</b> removed</span>
+        </div>
+        <div class="wave"><canvas id="wave" role="img" aria-label="Loudness of the take over time, with the removed silences shaded red"></canvas></div>
+        <div class="axis num" aria-hidden="true"><span>0:00</span><span>0:30</span><span>1:00</span><span>1:30</span><span>2:12</span></div>
+        <div class="knobs">
+          <div class="knob">
+            <label for="kThreshold">Silence threshold <output id="vThreshold" for="kThreshold">-22 dB</output></label>
+            <input type="range" id="kThreshold" min="-70" max="-15" step="1" value="-22">
+            <small>Quieter than this counts as silence. Set it just above the room's noise.</small>
+          </div>
+          <div class="knob">
+            <label for="kPause">Shortest pause <output id="vPause" for="kPause">350 ms</output></label>
+            <input type="range" id="kPause" min="100" max="1500" step="10" value="350">
+            <small>Shorter pauses stay in. Cutting every breath is what sounds robotic.</small>
+          </div>
+          <div class="knob">
+            <label for="kPad">Breathing room <output id="vPad" for="kPad">80 ms</output></label>
+            <input type="range" id="kPad" min="0" max="300" step="5" value="80">
+            <small>Kept on both sides of a cut, so the next word keeps its start.</small>
+          </div>
+        </div>
+        <div class="lab-foot"><span>Starts at the settings this take was cut with.</span><button class="linkbtn" id="reset" type="button">Reset</button></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="fit">
+    <div class="wrap">
+      <div class="head">
+        <h2>Made for talking.</h2>
+        <p class="lede">Cutly only goes by the audio. Anything that stays quiet long enough is a cut.</p>
+      </div>
+      <div class="fit">
+        <div class="card yes"><h3>Talking is the content</h3><p>Talking heads, tutorials, explainers, interviews. If you speak through the whole video, the pauses between your lines are exactly what comes out.</p></div>
+        <div class="card no"><h3>Silent vlogs</h3><p>B-roll, scenery, quiet moments. Cutly can't see a good shot, only hear it. If that part of the audio is silent, it gets cut.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="keeps">
+    <div class="wrap keeps">
+      <div>
+        <h2>Your video stays on your phone.</h2>
+        <p class="lede" style="margin:16px 0 30px">Nothing leaves it unless you ask, and then only the audio.</p>
+        <ul>
+          <li><span><b>Offline by default.</b> Recording, cutting and the Whisper transcript all run on the phone.</span></li>
+          <li><span><b>Your key, your call.</b> Cloud transcription uses your own Groq, OpenAI or Gemini key, and asks before every upload.</span></li>
+          <li><span><b>Only the audio.</b> The video is never sent, and the extracted audio is deleted as soon as the transcript arrives.</span></li>
+          <li><span><b>No account.</b> No analytics, no ads, no crash reporting.</span></li>
+          <li><span><b>Nothing backed up.</b> The app opts out of Google backup and device transfer.</span></li>
+        </ul>
+        <p style="margin-top:26px"><a href="/privacy">Read the privacy policy</a></p>
+      </div>
+      <div class="phone"><img src="/media/consent.webp" width="540" height="1120" loading="lazy" alt="The upload prompt: only the audio track is sent, never the video, and it is deleted from the phone when the transcript arrives"></div>
+    </div>
+  </section>
+
+  <section id="source">
+    <div class="wrap">
+      <div class="head" style="margin-bottom:0">
+        <h2>Open source, all of it.</h2>
+        <p class="lede">Apache-2.0. Read exactly how the cuts are placed, file an issue, or build it yourself.</p>
+        <ul class="stack"><li>Kotlin</li><li>Jetpack Compose</li><li>CameraX</li><li>Media3 Transformer</li><li>sherpa-onnx Whisper</li><li>No FFmpeg</li></ul>
+        <a class="btn ghost gh" href="https://github.com/riecodes/cutly"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Star on GitHub<span class="stars" data-stars hidden><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 .25a.75.75 0 01.673.418l1.882 3.815 4.21.612a.75.75 0 01.416 1.279l-3.046 2.97.719 4.192a.751.751 0 01-1.088.791L8 12.347l-3.766 1.98a.75.75 0 01-1.088-.79l.72-4.194L.818 6.374a.75.75 0 01.416-1.28l4.21-.611L7.327.668A.75.75 0 018 .25z"/></svg><span class="num">0</span><span class="vh"> stars</span></span></a>
+      </div>
+    </div>
+  </section>
+
+  <section id="tester-call">
+    <div class="wrap">
+      <div class="call">
+        <div>
+          <h2>Not on Google Play yet.</h2>
+          <p>Google Play asks for twelve testers before a new app from a personal account can launch. Be one of them: install it from Play, keep it for fourteen days, and tell me what breaks.</p>
+        </div>
+        <a class="btn" href="/tester">Be a tester</a>
+      </div>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="wrap">
+      <h2 style="margin-bottom:30px">Questions</h2>
+      <div class="faq">
+        <details><summary>Is it free?</summary><p>Yes. Cutly is free and open source under Apache-2.0. If you use cloud transcription, the provider whose key you paste bills you for it, not Cutly.</p></details>
+        <details><summary>Which phones does it run on?</summary><p>Android 10 and up. There is no iPhone version.</p></details>
+        <details><summary>Does it need the internet?</summary><p>No. Recording, cutting and offline transcription work without a connection. The internet is used only for the one-time Whisper model download and for cloud transcription with your own key.</p></details>
+        <details><summary>Will it cut my B-roll?</summary><p>If the audio under it is silent, yes. Cutly decides from loudness alone. Raise the shortest pause, or lower the silence threshold, and fewer quiet stretches qualify.</p></details>
+        <details><summary>How do I get it?</summary><p>Right now, through the Google Play test: leave your Gmail at <a href="/tester">cutly.riecodes.com/tester</a>. The source is on <a href="https://github.com/riecodes/cutly">GitHub</a> if you would rather build it yourself.</p></details>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <p class="liner">Talk. Cutly cuts the quiet.</p>
+    <p class="credit">Free and open source. Made by <a href="https://riecodes.com">riecodes</a>. <a href="/tester">Be a tester</a> &middot; <a href="/privacy">Privacy policy</a> &middot; <a href="https://github.com/riecodes/cutly">GitHub</a></p>
+  </div>
+  <p class="bigword" aria-hidden="true"><span>Cutly</span></p>
+</footer>
+</body>
+</html>

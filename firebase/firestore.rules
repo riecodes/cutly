@@ -1,0 +1,21 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Testers: the Google Play closed test list, filled in by /tester on cutly.riecodes.com.
+    // Anyone may add their own Gmail address once. Play invites testers by Google account, so any
+    // other address is refused. The address is the document id, so a second signup is an update,
+    // which nothing allows. Nobody may read the list through the client SDK: the project owner
+    // reads it with firebase/testers.mjs, whose IAM token is not subject to these rules.
+    match /testers/{email} {
+      allow create: if request.resource.data.keys().hasOnly(['email', 'at', 'phone'])
+        && request.resource.data.keys().hasAll(['email', 'at', 'phone'])
+        && request.resource.data.email == email
+        && email.size() <= 200
+        && email.matches('[a-z0-9.+_-]+@(gmail|googlemail)[.]com')
+        && request.resource.data.phone is string
+        && request.resource.data.phone.size() >= 3
+        && request.resource.data.phone.size() <= 120
+        && request.resource.data.at == request.time;
+    }
+  }
+}

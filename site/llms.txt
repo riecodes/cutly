@@ -1,0 +1,18 @@
+# Cutly
+
+> An Android video tool for people who talk on camera. Shoot a take in clips, read it back as text, and cut the silences out of it. Offline by default, no account, free and open source (Apache-2.0). Not on Google Play yet; testers sign up at https://cutly.riecodes.com/tester.
+
+## What it does
+
+- Camera: a segmented camera like TikTok's. Each clip is its own MP4, no length cap, discard the last clip, zoom stops, double-tap to flip lenses even mid-take.
+- Transcript: on the phone (Android speech recognition or offline Whisper, a roughly 100 MB SHA-256 checked download), or in the cloud with the user's own Groq, OpenAI or Gemini key. Only the audio is uploaded, and only after the user confirms. Timestamped, editable lines; captions burned into the export.
+- Cutting: loudness is measured every 20 ms and quiet stretches are cut. Three settings: silence threshold, shortest pause (350 ms default, so breaths stay in) and breathing room (80 ms default, kept on both sides of each cut). Nothing is encoded until the user saves.
+
+## Who it is for
+
+Videos where speaking is the content: talking heads, tutorials, explainers, interviews. Not silent vlogs: Cutly decides from the audio alone, so silent B-roll gets cut.
+
+## Links
+
+- Source: https://github.com/riecodes/cutly
+- Privacy policy: https://cutly.riecodes.com/privacy
