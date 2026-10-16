@@ -50,6 +50,7 @@ p{margin:0 0 14px;text-wrap:pretty}
 .btn.ghost:hover{background:var(--track)}
 .btn.small{min-height:42px;padding:0 18px;font-size:15px}
 .btn:disabled{opacity:.5;cursor:default}
+.btn[hidden]{display:none}
 
 /* Header */
 header{position:sticky;top:0;z-index:10;background:rgba(17,17,20,.86);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);

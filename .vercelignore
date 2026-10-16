@@ -1,0 +1,4 @@
+# The Vercel project's Root Directory is site/, so the CLI deploys from here. Upload only site/,
+# not the gigabytes of Android build output next to it.
+/*
+!/site

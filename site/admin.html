@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cutly testers</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#111114">
+<link rel="icon" href="/favicon.png" type="image/png" sizes="256x256">
+<link rel="preload" href="/fonts/tiktok-sans.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="stylesheet" href="/styles.css">
+<script type="module" src="/admin.js"></script>
+</head>
+<body>
+<main class="page">
+  <a class="word" href="/"><span class="glyph" aria-hidden="true"><i></i><i></i><i></i></span>Cutly</a>
+
+  <h1>Testers.</h1>
+  <p>The <a href="/tester">/tester</a> signups. Copy the addresses into the rietesters Google Group so the Play opt-in link works for them.</p>
+
+  <p style="display:flex;gap:12px;flex-wrap:wrap">
+    <button class="btn small" id="signIn" type="button" hidden>Sign in with Google</button>
+    <button class="btn small" id="copy" type="button" hidden>Copy all Gmail addresses</button>
+    <button class="btn small ghost" id="signOut" type="button" hidden>Sign out</button>
+  </p>
+  <p class="status" id="adminNote" role="status">Loading…</p>
+
+  <div style="overflow-x:auto">
+    <table hidden id="list">
+      <thead><tr><th>#</th><th>Gmail</th><th>Phone</th><th>Signed up</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</main>
+</body>
+</html>
