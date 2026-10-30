@@ -1,0 +1,8 @@
+{
+  // Static site on Cloudflare Workers assets (no server code): a push to main deploys through Workers Builds.
+  "$schema": "https://unpkg.com/wrangler/config-schema.json",
+  "name": "cutly",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": ".", "not_found_handling": "404-page" },
+  "observability": { "enabled": true }
+}

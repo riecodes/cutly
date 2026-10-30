@@ -1,0 +1,5 @@
+# Cloudflare Workers static assets: the same section paths and redirects as vercel.json.
+/how / 200
+/try / 200
+/fit / 200
+/keeps / 200

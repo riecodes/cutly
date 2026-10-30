@@ -1,0 +1,7 @@
+.vercel
+.wrangler
+.gitignore
+wrangler.jsonc
+vercel.json
+.vercelignore
+silence.test.mjs
